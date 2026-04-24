@@ -1,0 +1,17 @@
+{
+  "name": "pulse-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Monitor de sinais de trading B3 com Claude AI",
+  "packageManager": "pnpm@10.33.2",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "lint": "pnpm --filter web lint",
+    "db:generate": "pnpm --filter web db:generate",
+    "db:push": "pnpm --filter web db:push"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
