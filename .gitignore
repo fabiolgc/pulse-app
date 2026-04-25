@@ -40,6 +40,7 @@ yarn-error.log*
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 .DS_Store
@@ -47,6 +48,7 @@ Thumbs.db
 
 # Vercel
 .vercel
+vercel.env
 
 # TypeScript
 *.tsbuildinfo
