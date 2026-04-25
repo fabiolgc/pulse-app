@@ -64,7 +64,7 @@ export async function interpretRule({ description, symbol, timeframe }: Interpre
     .join("\n")
 
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-6",
     max_tokens: 1024,
     system: RULE_INTERPRETATION_PROMPT,
     messages: [{ role: "user", content: userMessage }],
@@ -72,7 +72,13 @@ export async function interpretRule({ description, symbol, timeframe }: Interpre
 
   const text =
     response.content[0].type === "text" ? response.content[0].text : ""
-  return JSON.parse(text)
+  return JSON.parse(stripJsonFence(text))
+}
+
+function stripJsonFence(text: string): string {
+  const trimmed = text.trim()
+  const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/)
+  return fenceMatch ? fenceMatch[1].trim() : trimmed
 }
 
 export interface AnalyzeSignalsParams {
@@ -99,7 +105,7 @@ DADOS ATUAIS:
 - Padrões detectados: ${patternsJson}`
 
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-6",
     max_tokens: 2048,
     system: SIGNAL_ANALYSIS_PROMPT,
     messages: [{ role: "user", content: userMessage }],
@@ -107,5 +113,5 @@ DADOS ATUAIS:
 
   const text =
     response.content[0].type === "text" ? response.content[0].text : ""
-  return JSON.parse(text)
+  return JSON.parse(stripJsonFence(text))
 }
