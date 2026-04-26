@@ -1,7 +1,18 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { BarChart3, Loader2, Play } from "lucide-react"
+import {
+  createChart,
+  createSeriesMarkers,
+  CandlestickSeries,
+  type IChartApi,
+  type ISeriesApi,
+  type ISeriesMarkersPluginApi,
+  type CandlestickData,
+  type SeriesMarker,
+  type Time,
+} from "lightweight-charts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -68,6 +79,11 @@ export default function BacktestPage() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [metrics, setMetrics] = useState<BacktestMetrics | null>(null)
+  const [chartCandles, setChartCandles] = useState<CandlestickData[] | null>(null)
+  const chartContainerRef = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<IChartApi | null>(null)
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null)
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -91,11 +107,14 @@ export default function BacktestPage() {
     }
   }, [supabase])
 
+  const selectedRule = rules.find((r) => r.id === ruleId)
+
   async function runBacktest() {
     if (!ruleId) return
     setRunning(true)
     setError(null)
     setMetrics(null)
+    setChartCandles(null)
     try {
       const {
         data: { user },
@@ -117,6 +136,39 @@ export default function BacktestPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Erro ao rodar backtest")
       setMetrics(data.metrics as BacktestMetrics)
+
+      // Load candles for chart (same window the backtest used)
+      if (selectedRule) {
+        const startMs = new Date(startDate).getTime()
+        const endMs = new Date(endDate).getTime() + 24 * 3600 * 1000
+        const { data: candleData } = await supabase
+          .from("candles_history")
+          .select("time, open, high, low, close")
+          .eq("symbol", selectedRule.symbol)
+          .eq("source", source)
+          .eq("tf", selectedRule.tf)
+          .gte("time", startMs)
+          .lte("time", endMs)
+          .order("time", { ascending: true })
+          .limit(20000)
+        if (candleData?.length) {
+          const candles: CandlestickData[] = candleData
+            .map((c) => ({
+              time: Math.floor(Number(c.time) / 1000) as Time,
+              open: Number(c.open),
+              high: Number(c.high),
+              low: Number(c.low),
+              close: Number(c.close),
+            }))
+            .reduce<CandlestickData[]>((acc, cur) => {
+              const last = acc[acc.length - 1]
+              if (last && last.time === cur.time) acc[acc.length - 1] = cur
+              else acc.push(cur)
+              return acc
+            }, [])
+          setChartCandles(candles)
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro desconhecido")
     } finally {
@@ -124,7 +176,64 @@ export default function BacktestPage() {
     }
   }
 
-  const selectedRule = rules.find((r) => r.id === ruleId)
+  // Build chart whenever candles + metrics are both ready
+  useEffect(() => {
+    if (!metrics || !chartCandles || !chartContainerRef.current) return
+    const container = chartContainerRef.current
+    const chart = createChart(container, {
+      autoSize: true,
+      layout: { background: { color: "transparent" }, textColor: "#9ca3af" },
+      grid: {
+        vertLines: { color: "rgba(63, 63, 70, 0.4)" },
+        horzLines: { color: "rgba(63, 63, 70, 0.4)" },
+      },
+      timeScale: { borderColor: "#3f3f46", timeVisible: true },
+      rightPriceScale: { borderColor: "#3f3f46" },
+    })
+    const series = chart.addSeries(CandlestickSeries, {
+      upColor: "#10b981",
+      downColor: "#ef4444",
+      borderUpColor: "#10b981",
+      borderDownColor: "#ef4444",
+      wickUpColor: "#10b981",
+      wickDownColor: "#ef4444",
+    })
+    series.setData(chartCandles)
+
+    const markers: SeriesMarker<Time>[] = []
+    for (const t of metrics.trades) {
+      const isBuy = t.direction === "compra"
+      markers.push({
+        time: Math.floor(t.entryTime / 1000) as Time,
+        position: isBuy ? "belowBar" : "aboveBar",
+        color: "#3b82f6",
+        shape: isBuy ? "arrowUp" : "arrowDown",
+        text: isBuy ? "C" : "V",
+      })
+      const win = t.result >= 0
+      markers.push({
+        time: Math.floor(t.exitTime / 1000) as Time,
+        position: isBuy ? "aboveBar" : "belowBar",
+        color: win ? "#10b981" : "#ef4444",
+        shape: isBuy ? "arrowDown" : "arrowUp",
+        text: `${win ? "+" : ""}${Math.round(t.result)}`,
+      })
+    }
+    markers.sort((a, b) => (a.time as number) - (b.time as number))
+    const markersPlugin = createSeriesMarkers(series, markers)
+
+    chart.timeScale().fitContent()
+    chartRef.current = chart
+    seriesRef.current = series
+    markersRef.current = markersPlugin
+
+    return () => {
+      chart.remove()
+      chartRef.current = null
+      seriesRef.current = null
+      markersRef.current = null
+    }
+  }, [metrics, chartCandles])
 
   return (
     <div className="min-h-screen bg-background">
@@ -237,6 +346,30 @@ export default function BacktestPage() {
               />
             </div>
 
+            {metrics.trades.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">
+                    Gráfico {selectedRule?.symbol} — {selectedRule?.tf}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {chartCandles ? (
+                    <div ref={chartContainerRef} className="h-[420px] w-full" />
+                  ) : (
+                    <div className="h-[420px] flex items-center justify-center text-muted-foreground">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    </div>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                    <LegendDot color="#3b82f6" label="Entrada" />
+                    <LegendDot color="#10b981" label="Saída ganho" />
+                    <LegendDot color="#ef4444" label="Saída perda" />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card>
               <CardHeader>
                 <CardTitle className="text-sm">Trades</CardTitle>
@@ -309,6 +442,18 @@ export default function BacktestPage() {
           </>
         )}
       </main>
+    </div>
+  )
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span
+        className="inline-block h-2.5 w-2.5 rounded-full"
+        style={{ backgroundColor: color }}
+      />
+      <span>{label}</span>
     </div>
   )
 }
