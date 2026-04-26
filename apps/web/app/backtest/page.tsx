@@ -1,24 +1,16 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { BarChart3, Loader2, Play } from "lucide-react"
-import {
-  createChart,
-  createSeriesMarkers,
-  CandlestickSeries,
-  type IChartApi,
-  type ISeriesApi,
-  type ISeriesMarkersPluginApi,
-  type CandlestickData,
-  type SeriesMarker,
-  type Time,
-} from "lightweight-charts"
+import type { CandlestickData, Time } from "lightweight-charts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { AppHeader } from "@/components/app-header"
+import { RuleChart, type ChartMarker } from "@/components/rule-chart"
 import { createClient } from "@/lib/supabase"
 import type { BacktestMetrics, BacktestTrade, SourceId } from "@/types"
 
@@ -68,8 +60,33 @@ function formatDateTime(epochMs: number): string {
   })
 }
 
+function tradesToMarkers(trades: BacktestTrade[]): ChartMarker[] {
+  const markers: ChartMarker[] = []
+  for (const t of trades) {
+    const isBuy = t.direction === "compra"
+    markers.push({
+      time: t.entryTime,
+      position: isBuy ? "belowBar" : "aboveBar",
+      color: "#3b82f6",
+      shape: isBuy ? "arrowUp" : "arrowDown",
+      text: isBuy ? "C" : "V",
+    })
+    const win = t.result >= 0
+    markers.push({
+      time: t.exitTime,
+      position: isBuy ? "aboveBar" : "belowBar",
+      color: win ? "#10b981" : "#ef4444",
+      shape: isBuy ? "arrowDown" : "arrowUp",
+      text: `${win ? "+" : ""}${Math.round(t.result)}`,
+    })
+  }
+  return markers
+}
+
 export default function BacktestPage() {
   const supabase = useMemo(() => createClient(), [])
+  const searchParams = useSearchParams()
+  const presetRuleId = searchParams.get("ruleId")
   const [rules, setRules] = useState<RuleOption[]>([])
   const [loadingRules, setLoadingRules] = useState(true)
   const [ruleId, setRuleId] = useState("")
@@ -80,11 +97,7 @@ export default function BacktestPage() {
   const [error, setError] = useState<string | null>(null)
   const [metrics, setMetrics] = useState<BacktestMetrics | null>(null)
   const [chartCandles, setChartCandles] = useState<CandlestickData[] | null>(null)
-  const [hoveredCandle, setHoveredCandle] = useState<CandlestickData | null>(null)
-  const chartContainerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<IChartApi | null>(null)
-  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null)
-  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
+  const [focusRange, setFocusRange] = useState<[number, number] | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -99,14 +112,18 @@ export default function BacktestPage() {
         } else {
           const list = (data ?? []) as RuleOption[]
           setRules(list)
-          if (list.length > 0) setRuleId(list[0].id)
+          const initial =
+            (presetRuleId && list.find((r) => r.id === presetRuleId)?.id) ||
+            list[0]?.id ||
+            ""
+          setRuleId(initial)
         }
         setLoadingRules(false)
       })
     return () => {
       mounted = false
     }
-  }, [supabase])
+  }, [supabase, presetRuleId])
 
   const selectedRule = rules.find((r) => r.id === ruleId)
 
@@ -116,6 +133,7 @@ export default function BacktestPage() {
     setError(null)
     setMetrics(null)
     setChartCandles(null)
+    setFocusRange(null)
     try {
       const {
         data: { user },
@@ -138,7 +156,6 @@ export default function BacktestPage() {
       if (!res.ok) throw new Error(data.error || "Erro ao rodar backtest")
       setMetrics(data.metrics as BacktestMetrics)
 
-      // Load candles for chart (same window the backtest used)
       if (selectedRule) {
         const startMs = new Date(startDate).getTime()
         const endMs = new Date(endDate).getTime() + 24 * 3600 * 1000
@@ -177,94 +194,18 @@ export default function BacktestPage() {
     }
   }
 
-  // Build chart whenever candles + metrics are both ready
-  useEffect(() => {
-    if (!metrics || !chartCandles || !chartContainerRef.current) return
-    const container = chartContainerRef.current
-    const chart = createChart(container, {
-      autoSize: true,
-      layout: { background: { color: "transparent" }, textColor: "#9ca3af" },
-      grid: {
-        vertLines: { color: "rgba(63, 63, 70, 0.4)" },
-        horzLines: { color: "rgba(63, 63, 70, 0.4)" },
-      },
-      timeScale: { borderColor: "#3f3f46", timeVisible: true },
-      rightPriceScale: { borderColor: "#3f3f46" },
-    })
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: "#10b981",
-      downColor: "#ef4444",
-      borderUpColor: "#10b981",
-      borderDownColor: "#ef4444",
-      wickUpColor: "#10b981",
-      wickDownColor: "#ef4444",
-    })
-    series.setData(chartCandles)
-
-    const markers: SeriesMarker<Time>[] = []
-    for (const t of metrics.trades) {
-      const isBuy = t.direction === "compra"
-      markers.push({
-        time: Math.floor(t.entryTime / 1000) as Time,
-        position: isBuy ? "belowBar" : "aboveBar",
-        color: "#3b82f6",
-        shape: isBuy ? "arrowUp" : "arrowDown",
-        text: isBuy ? "C" : "V",
-      })
-      const win = t.result >= 0
-      markers.push({
-        time: Math.floor(t.exitTime / 1000) as Time,
-        position: isBuy ? "aboveBar" : "belowBar",
-        color: win ? "#10b981" : "#ef4444",
-        shape: isBuy ? "arrowDown" : "arrowUp",
-        text: `${win ? "+" : ""}${Math.round(t.result)}`,
-      })
-    }
-    markers.sort((a, b) => (a.time as number) - (b.time as number))
-    const markersPlugin = createSeriesMarkers(series, markers)
-
-    chart.subscribeCrosshairMove((param) => {
-      if (!param.time || !param.seriesData) {
-        setHoveredCandle(null)
-        return
-      }
-      const data = param.seriesData.get(series) as CandlestickData | undefined
-      setHoveredCandle(data ?? null)
-    })
-
-    chart.timeScale().fitContent()
-    chartRef.current = chart
-    seriesRef.current = series
-    markersRef.current = markersPlugin
-
-    return () => {
-      chart.remove()
-      chartRef.current = null
-      seriesRef.current = null
-      markersRef.current = null
-      setHoveredCandle(null)
-    }
-  }, [metrics, chartCandles])
-
-  function zoomToLastDays(days: number) {
-    if (!chartRef.current || !chartCandles?.length) return
-    const last = chartCandles[chartCandles.length - 1].time as number
-    const from = (last - days * 86400) as Time
-    chartRef.current.timeScale().setVisibleRange({ from, to: last as Time })
-  }
-
-  function zoomReset() {
-    chartRef.current?.timeScale().fitContent()
-  }
-
   function zoomToTrade(t: BacktestTrade) {
-    if (!chartRef.current) return
-    const margin = 15 * 60 // 15 min de respiro
-    const from = (Math.floor(t.entryTime / 1000) - margin) as Time
-    const to = (Math.floor(t.exitTime / 1000) + margin) as Time
-    chartRef.current.timeScale().setVisibleRange({ from, to })
-    chartContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+    const margin = 15 * 60 * 1000 // 15 min
+    setFocusRange([t.entryTime - margin, t.exitTime + margin])
+    document
+      .getElementById("backtest-chart")
+      ?.scrollIntoView({ behavior: "smooth", block: "center" })
   }
+
+  const markers = useMemo(
+    () => (metrics ? tradesToMarkers(metrics.trades) : []),
+    [metrics]
+  )
 
   return (
     <div className="min-h-screen bg-background">
@@ -378,39 +319,18 @@ export default function BacktestPage() {
             </div>
 
             {metrics.trades.length > 0 && (
-              <Card>
+              <Card id="backtest-chart">
                 <CardHeader>
                   <CardTitle className="text-sm">
                     Gráfico {selectedRule?.symbol} — {selectedRule?.tf}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="mb-3 flex flex-wrap items-center gap-2">
-                    <div className="flex gap-1">
-                      <Button size="sm" variant="outline" onClick={() => zoomToLastDays(1)}>
-                        1D
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => zoomToLastDays(5)}>
-                        5D
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => zoomToLastDays(30)}>
-                        1M
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={zoomReset}>
-                        Tudo
-                      </Button>
-                    </div>
-                  </div>
-                  {chartCandles ? (
-                    <div className="relative">
-                      <div ref={chartContainerRef} className="h-[420px] w-full" />
-                      {hoveredCandle && <OhlcOverlay candle={hoveredCandle} />}
-                    </div>
-                  ) : (
-                    <div className="h-[420px] flex items-center justify-center text-muted-foreground">
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                    </div>
-                  )}
+                  <RuleChart
+                    candles={chartCandles}
+                    markers={markers}
+                    focusRange={focusRange}
+                  />
                   <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
                     <LegendDot color="#3b82f6" label="Entrada" />
                     <LegendDot color="#10b981" label="Saída ganho" />
@@ -497,29 +417,6 @@ export default function BacktestPage() {
           </>
         )}
       </main>
-    </div>
-  )
-}
-
-function OhlcOverlay({ candle }: { candle: CandlestickData }) {
-  const fmt = (n: number) =>
-    new Intl.NumberFormat("pt-BR", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(n)
-  const isGreen = candle.close >= candle.open
-  return (
-    <div className="absolute left-2 top-2 rounded-md bg-background/85 backdrop-blur px-2 py-1 text-[11px] font-mono pointer-events-none border border-border">
-      <span className="text-muted-foreground">O </span>
-      <span className="tabular-nums">{fmt(candle.open)}</span>
-      <span className="text-muted-foreground"> H </span>
-      <span className="tabular-nums">{fmt(candle.high)}</span>
-      <span className="text-muted-foreground"> L </span>
-      <span className="tabular-nums">{fmt(candle.low)}</span>
-      <span className="text-muted-foreground"> C </span>
-      <span className={`tabular-nums ${isGreen ? "text-emerald-500" : "text-destructive"}`}>
-        {fmt(candle.close)}
-      </span>
     </div>
   )
 }
