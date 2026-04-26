@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
-import { validateIngestMessage, SOURCE_IDS } from "@/lib/ingest-schema"
+import { validateIngestMessage } from "@/lib/ingest-schema"
 import { createServiceRoleClient } from "@/lib/supabase-server"
+import { runSignalCheck } from "@/lib/signals"
 
 type IngestTokenMap = Record<string, string>
 
@@ -44,6 +45,9 @@ export async function POST(request: NextRequest) {
   const supabase = createServiceRoleClient()
   const errors: string[] = []
   let inserted = 0
+  // Track which (symbol, source, tf) combos got new candles, so we run the
+  // rule engine once per combo at the end (not per message).
+  const candleKeys = new Set<string>()
 
   for (const raw of messages) {
     try {
@@ -80,6 +84,7 @@ export async function POST(request: NextRequest) {
           errors.push(`DB error: ${error.message}`)
         } else {
           inserted++
+          candleKeys.add(`${envelope.symbol}|${envelope.source}|${envelope.tf}`)
         }
       }
 
@@ -111,9 +116,24 @@ export async function POST(request: NextRequest) {
     .update({ last_seen: new Date().toISOString() })
     .eq("id", sourceId)
 
+  // Run rule engine for every (symbol, source, tf) that just got a new candle.
+  // Errors here don't fail the ingest — candles are already persisted.
+  let triggered = 0
+  for (const key of candleKeys) {
+    const [symbol, source, tf] = key.split("|")
+    try {
+      const res = await runSignalCheck({ supabase, symbol, source, tf })
+      triggered += res.signals.length
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "signal check failed"
+      errors.push(`signals(${key}): ${message}`)
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     inserted,
+    triggered,
     errors: errors.length > 0 ? errors : undefined,
   })
 }
