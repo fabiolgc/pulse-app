@@ -20,7 +20,7 @@ import { Select } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { AppHeader } from "@/components/app-header"
 import { createClient } from "@/lib/supabase"
-import type { BacktestMetrics, SourceId } from "@/types"
+import type { BacktestMetrics, BacktestTrade, SourceId } from "@/types"
 
 type RuleOption = {
   id: string
@@ -80,6 +80,7 @@ export default function BacktestPage() {
   const [error, setError] = useState<string | null>(null)
   const [metrics, setMetrics] = useState<BacktestMetrics | null>(null)
   const [chartCandles, setChartCandles] = useState<CandlestickData[] | null>(null)
+  const [hoveredCandle, setHoveredCandle] = useState<CandlestickData | null>(null)
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null)
@@ -222,6 +223,15 @@ export default function BacktestPage() {
     markers.sort((a, b) => (a.time as number) - (b.time as number))
     const markersPlugin = createSeriesMarkers(series, markers)
 
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.time || !param.seriesData) {
+        setHoveredCandle(null)
+        return
+      }
+      const data = param.seriesData.get(series) as CandlestickData | undefined
+      setHoveredCandle(data ?? null)
+    })
+
     chart.timeScale().fitContent()
     chartRef.current = chart
     seriesRef.current = series
@@ -232,8 +242,29 @@ export default function BacktestPage() {
       chartRef.current = null
       seriesRef.current = null
       markersRef.current = null
+      setHoveredCandle(null)
     }
   }, [metrics, chartCandles])
+
+  function zoomToLastDays(days: number) {
+    if (!chartRef.current || !chartCandles?.length) return
+    const last = chartCandles[chartCandles.length - 1].time as number
+    const from = (last - days * 86400) as Time
+    chartRef.current.timeScale().setVisibleRange({ from, to: last as Time })
+  }
+
+  function zoomReset() {
+    chartRef.current?.timeScale().fitContent()
+  }
+
+  function zoomToTrade(t: BacktestTrade) {
+    if (!chartRef.current) return
+    const margin = 15 * 60 // 15 min de respiro
+    const from = (Math.floor(t.entryTime / 1000) - margin) as Time
+    const to = (Math.floor(t.exitTime / 1000) + margin) as Time
+    chartRef.current.timeScale().setVisibleRange({ from, to })
+    chartContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -354,8 +385,27 @@ export default function BacktestPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="outline" onClick={() => zoomToLastDays(1)}>
+                        1D
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => zoomToLastDays(5)}>
+                        5D
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => zoomToLastDays(30)}>
+                        1M
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={zoomReset}>
+                        Tudo
+                      </Button>
+                    </div>
+                  </div>
                   {chartCandles ? (
-                    <div ref={chartContainerRef} className="h-[420px] w-full" />
+                    <div className="relative">
+                      <div ref={chartContainerRef} className="h-[420px] w-full" />
+                      {hoveredCandle && <OhlcOverlay candle={hoveredCandle} />}
+                    </div>
                   ) : (
                     <div className="h-[420px] flex items-center justify-center text-muted-foreground">
                       <Loader2 className="h-5 w-5 animate-spin" />
@@ -399,7 +449,12 @@ export default function BacktestPage() {
                       </thead>
                       <tbody>
                         {metrics.trades.map((t, i) => (
-                          <tr key={i} className="border-b last:border-0">
+                          <tr
+                            key={i}
+                            onClick={() => zoomToTrade(t)}
+                            className="border-b last:border-0 cursor-pointer hover:bg-muted/40"
+                            title="Clique para focar este trade no gráfico"
+                          >
                             <td className="py-2 pr-3 whitespace-nowrap">
                               {formatDateTime(t.entryTime)}
                             </td>
@@ -442,6 +497,29 @@ export default function BacktestPage() {
           </>
         )}
       </main>
+    </div>
+  )
+}
+
+function OhlcOverlay({ candle }: { candle: CandlestickData }) {
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n)
+  const isGreen = candle.close >= candle.open
+  return (
+    <div className="absolute left-2 top-2 rounded-md bg-background/85 backdrop-blur px-2 py-1 text-[11px] font-mono pointer-events-none border border-border">
+      <span className="text-muted-foreground">O </span>
+      <span className="tabular-nums">{fmt(candle.open)}</span>
+      <span className="text-muted-foreground"> H </span>
+      <span className="tabular-nums">{fmt(candle.high)}</span>
+      <span className="text-muted-foreground"> L </span>
+      <span className="tabular-nums">{fmt(candle.low)}</span>
+      <span className="text-muted-foreground"> C </span>
+      <span className={`tabular-nums ${isGreen ? "text-emerald-500" : "text-destructive"}`}>
+        {fmt(candle.close)}
+      </span>
     </div>
   )
 }
