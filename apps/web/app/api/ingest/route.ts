@@ -33,6 +33,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  // Historical imports must skip the rule engine — otherwise a backfill of
+  // 2024 candles would create alerts on the live dashboard.
+  const isHistorical = request.nextUrl.searchParams.get("historical") === "1"
+
   let body: unknown
   try {
     body = await request.json()
@@ -119,14 +123,16 @@ export async function POST(request: NextRequest) {
   // Run rule engine for every (symbol, source, tf) that just got a new candle.
   // Errors here don't fail the ingest — candles are already persisted.
   let triggered = 0
-  for (const key of candleKeys) {
-    const [symbol, source, tf] = key.split("|")
-    try {
-      const res = await runSignalCheck({ supabase, symbol, source, tf })
-      triggered += res.signals.length
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "signal check failed"
-      errors.push(`signals(${key}): ${message}`)
+  if (!isHistorical) {
+    for (const key of candleKeys) {
+      const [symbol, source, tf] = key.split("|")
+      try {
+        const res = await runSignalCheck({ supabase, symbol, source, tf })
+        triggered += res.signals.length
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "signal check failed"
+        errors.push(`signals(${key}): ${message}`)
+      }
     }
   }
 

@@ -21,11 +21,23 @@ BACKOFF_BASE = 2
 class IngestClient:
     """Buffers events and sends them in batches to /api/ingest via HTTP POST."""
 
-    def __init__(self) -> None:
-        self._url = os.environ.get("INGEST_URL", "http://localhost:3000/api/ingest")
-        self._token = os.environ.get("INGEST_TOKEN", "")
+    def __init__(self, url: str | None = None, token: str | None = None) -> None:
+        self._url = url or os.environ.get(
+            "INGEST_URL", "http://localhost:3000/api/ingest"
+        )
+        self._token = token if token is not None else os.environ.get("INGEST_TOKEN", "")
         self._buffer: deque[dict[str, Any]] = deque(maxlen=BUFFER_MAX_SIZE)
         self._last_flush = time.time()
+
+    def flush_all(self) -> None:
+        """Drain the buffer completely (calls flush in a loop until empty)."""
+        while self._buffer:
+            before = len(self._buffer)
+            self.flush()
+            if len(self._buffer) >= before:
+                # No progress — likely all retries failed; stop to avoid loop.
+                logger.error("flush_all aborted: buffer not draining")
+                return
 
     def enqueue(self, envelope: dict[str, Any]) -> None:
         """Add an event to the send buffer."""
