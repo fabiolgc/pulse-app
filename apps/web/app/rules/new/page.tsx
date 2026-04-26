@@ -1,21 +1,25 @@
 "use client"
 
 import { useState } from "react"
-import { Activity, Sparkles, Save } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Sparkles, Save, Loader2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
+import { AppHeader } from "@/components/app-header"
+import { createClient } from "@/lib/supabase"
 
 export default function NewRulePage() {
+  const router = useRouter()
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [symbol, setSymbol] = useState("WINFUT")
   const [timeframe, setTimeframe] = useState("M5")
-  const [logicJson, setLogicJson] = useState<object | null>(null)
+  const [logicJson, setLogicJson] = useState<Record<string, unknown> | null>(null)
   const [isInterpreting, setIsInterpreting] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function handleInterpret() {
@@ -40,27 +44,38 @@ export default function NewRulePage() {
 
   async function handleSave() {
     if (!logicJson || !name.trim()) return
-    // TODO: implement save to Supabase with auth
-    alert("Save implementado na proxima iteracao (requer auth)")
+    setIsSaving(true)
+    setError(null)
+    const supabase = createClient()
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser()
+    if (userErr || !user) {
+      setError("Sessão expirada. Faça login novamente.")
+      setIsSaving(false)
+      return
+    }
+    const { error: insertErr } = await supabase.from("rules").insert({
+      user_id: user.id,
+      name: name.trim(),
+      description: description.trim(),
+      logic_json: logicJson,
+      symbol,
+      tf: timeframe,
+      active: false,
+    })
+    setIsSaving(false)
+    if (insertErr) {
+      setError(insertErr.message)
+      return
+    }
+    router.push("/rules")
   }
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b border-border px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Activity className="h-6 w-6 text-primary" />
-            <h1 className="text-xl font-bold">Pulse</h1>
-            <Badge variant="outline" className="text-xs">Beta</Badge>
-          </div>
-          <nav className="flex items-center gap-6 text-sm">
-            <a href="/dashboard" className="text-muted-foreground hover:text-foreground">Dashboard</a>
-            <a href="/rules" className="font-medium text-foreground">Regras</a>
-            <a href="/backtest" className="text-muted-foreground hover:text-foreground">Backtest</a>
-            <a href="/settings" className="text-muted-foreground hover:text-foreground">Settings</a>
-          </nav>
-        </div>
-      </header>
+      <AppHeader />
 
       <main className="p-6 max-w-3xl mx-auto space-y-6">
         <h2 className="text-lg font-semibold">Nova Regra de Trading</h2>
@@ -126,9 +141,9 @@ export default function NewRulePage() {
               <pre className="bg-secondary rounded-lg p-4 text-xs font-mono overflow-x-auto">
                 {JSON.stringify(logicJson, null, 2)}
               </pre>
-              <Button onClick={handleSave} disabled={!name.trim()}>
-                <Save className="h-4 w-4" />
-                Salvar Regra
+              <Button onClick={handleSave} disabled={!name.trim() || isSaving}>
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {isSaving ? "Salvando..." : "Salvar Regra"}
               </Button>
             </CardContent>
           </Card>
