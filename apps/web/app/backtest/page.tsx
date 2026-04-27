@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { BarChart3, Loader2, Play } from "lucide-react"
 import type { CandlestickData, Time } from "lightweight-charts"
@@ -84,6 +84,23 @@ function tradesToMarkers(trades: BacktestTrade[]): ChartMarker[] {
 }
 
 export default function BacktestPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-background">
+          <AppHeader />
+          <main className="p-6 max-w-5xl mx-auto">
+            <Loader2 className="h-5 w-5 animate-spin" />
+          </main>
+        </div>
+      }
+    >
+      <BacktestPageInner />
+    </Suspense>
+  )
+}
+
+function BacktestPageInner() {
   const supabase = useMemo(() => createClient(), [])
   const searchParams = useSearchParams()
   const presetRuleId = searchParams.get("ruleId")
