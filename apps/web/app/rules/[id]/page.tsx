@@ -11,17 +11,16 @@ import { Badge } from "@/components/ui/badge"
 import { AppHeader } from "@/components/app-header"
 import { RuleChart, type ChartMarker } from "@/components/rule-chart"
 import { createClient } from "@/lib/supabase"
-import type { RuleLogic, SourceId } from "@/types"
+import type { RuleLogic } from "@/types"
 
 type RuleRow = {
   id: string
   user_id: string
-  account_id: string | null
+  account_id: string
   name: string
   description: string
   symbol: string
   tf: string
-  source_pref: SourceId | null
   active: boolean
   logic_json: RuleLogic
   created_at: string
@@ -102,19 +101,20 @@ export default function RuleDetailPage() {
       const r = ruleData as RuleRow
       setRule(r)
 
-      let candlesQ = supabase
+      const candlesQ = supabase
         .from("candles_history")
         .select("time, open, high, low, close")
+        .eq("account_id", r.account_id)
         .eq("symbol", r.symbol)
         .eq("tf", r.tf)
         .order("time", { ascending: false })
         .limit(500)
-      if (r.account_id) candlesQ = candlesQ.eq("account_id", r.account_id)
-      else candlesQ = candlesQ.eq("source", r.source_pref ?? "mt5").is("account_id", null)
 
-      const accountQ = r.account_id
-        ? supabase.from("accounts").select("id, label, broker").eq("id", r.account_id).maybeSingle()
-        : Promise.resolve({ data: null })
+      const accountQ = supabase
+        .from("accounts")
+        .select("id, label, broker")
+        .eq("id", r.account_id)
+        .maybeSingle()
 
       const [candleRes, alertRes, accountRes] = await Promise.all([
         candlesQ,

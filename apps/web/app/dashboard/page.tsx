@@ -23,8 +23,7 @@ type RuleRow = {
   symbol: string
   tf: string
   active: boolean
-  account_id: string | null
-  source_pref: string | null
+  account_id: string
   created_at: string
 }
 
@@ -87,7 +86,7 @@ export default function DashboardPage() {
           .order("created_at", { ascending: true }),
         supabase
           .from("rules")
-          .select("id, name, description, symbol, tf, active, account_id, source_pref, created_at")
+          .select("id, name, description, symbol, tf, active, account_id, created_at")
           .order("active", { ascending: false })
           .order("created_at", { ascending: false }),
       ])
@@ -111,15 +110,14 @@ export default function DashboardPage() {
 
       const results = await Promise.all(
         ruleList.map(async (r) => {
-          let candleQ = supabase
+          const candleQ = supabase
             .from("candles_history")
             .select("time, close")
+            .eq("account_id", r.account_id)
             .eq("symbol", r.symbol)
             .eq("tf", r.tf)
             .order("time", { ascending: false })
             .limit(1)
-          if (r.account_id) candleQ = candleQ.eq("account_id", r.account_id)
-          else candleQ = candleQ.eq("source", r.source_pref ?? "mt5").is("account_id", null)
 
           const [candleRes, alertRes] = await Promise.all([
             candleQ.maybeSingle(),
@@ -217,9 +215,8 @@ export default function DashboardPage() {
   const grouped = useMemo(() => {
     const groups = new Map<string, RuleRow[]>()
     for (const r of rules) {
-      const key = r.account_id ?? "_legacy"
-      if (!groups.has(key)) groups.set(key, [])
-      groups.get(key)!.push(r)
+      if (!groups.has(r.account_id)) groups.set(r.account_id, [])
+      groups.get(r.account_id)!.push(r)
     }
     return groups
   }, [rules])
@@ -287,7 +284,7 @@ export default function DashboardPage() {
             {Array.from(grouped.entries()).map(([accountId, accountRules]) => (
               <AccountGroup
                 key={accountId}
-                account={accountId === "_legacy" ? null : accounts.find((a) => a.id === accountId) ?? null}
+                account={accounts.find((a) => a.id === accountId) ?? null}
                 rules={accountRules}
                 vitals={vitals}
               />

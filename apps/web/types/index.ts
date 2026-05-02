@@ -83,8 +83,7 @@ export interface Rule {
   logicJson: RuleLogic
   symbol: string
   tf: string
-  sourcePref: SourceId | null
-  accountId: string | null
+  accountId: string
   active: boolean
   createdAt: string
 }

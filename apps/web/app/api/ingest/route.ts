@@ -4,30 +4,15 @@ import { createServiceRoleClient } from "@/lib/supabase-server"
 import { hashAccountToken } from "@/lib/account-token"
 import { runSignalCheck } from "@/lib/signals"
 
-type IngestTokenMap = Record<string, string>
-
 interface ResolvedAuth {
   sourceId: string
-  accountId: string | null
-  /** true se a conta está ativa (ou se é caminho legacy sem conta). */
+  accountId: string
   accountActive: boolean
 }
 
-function parseLegacyTokens(): IngestTokenMap {
-  try {
-    return JSON.parse(process.env.INGEST_TOKENS ?? "{}")
-  } catch {
-    return {}
-  }
-}
-
 /**
- * Resolve Bearer token em duas fases:
- * 1) Tenta accounts.token_hash (per-account, novo modelo).
- * 2) Fallback INGEST_TOKENS env (legacy, agents pré-multi-conta).
- *
- * Retorna sourceId='mt5' sempre — o agent só conhece MT5 atualmente.
- * accountId fica null no path legacy.
+ * Resolve Bearer token via accounts.token_hash. Cada agent é amarrado a uma conta;
+ * conta inativa ainda recebe candles (histórico) mas não dispara regras.
  */
 async function authenticate(
   authHeader: string | null,
@@ -43,21 +28,13 @@ async function authenticate(
     .eq("token_hash", tokenHash)
     .maybeSingle()
 
-  if (account) {
-    return {
-      sourceId: "mt5",
-      accountId: account.id as string,
-      accountActive: account.active === true,
-    }
-  }
+  if (!account) return null
 
-  const legacy = parseLegacyTokens()
-  const entry = Object.entries(legacy).find(([, t]) => t === token)
-  if (entry) {
-    return { sourceId: entry[0], accountId: null, accountActive: true }
+  return {
+    sourceId: "mt5",
+    accountId: account.id as string,
+    accountActive: account.active === true,
   }
-
-  return null
 }
 
 export async function POST(request: NextRequest) {
@@ -121,23 +98,16 @@ export async function POST(request: NextRequest) {
         } else {
           inserted++
           candleKeys.add(
-            `${envelope.symbol}|${envelope.source}|${envelope.tf}|${auth.accountId ?? ""}`
+            `${envelope.symbol}|${envelope.source}|${envelope.tf}|${auth.accountId}`
           )
         }
       }
 
       if (envelope.type === "heartbeat") {
-        if (auth.accountId) {
-          await supabase
-            .from("accounts")
-            .update({ last_seen: new Date().toISOString() })
-            .eq("id", auth.accountId)
-        } else {
-          await supabase
-            .from("data_sources")
-            .update({ last_seen: new Date().toISOString() })
-            .eq("id", envelope.source)
-        }
+        await supabase
+          .from("accounts")
+          .update({ last_seen: new Date().toISOString() })
+          .eq("id", auth.accountId)
       }
 
       if (envelope.type === "tick") {
@@ -155,18 +125,10 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Update last_seen — accounts (novo) ou data_sources (legacy)
-  if (auth.accountId) {
-    await supabase
-      .from("accounts")
-      .update({ last_seen: new Date().toISOString() })
-      .eq("id", auth.accountId)
-  } else {
-    await supabase
-      .from("data_sources")
-      .update({ last_seen: new Date().toISOString() })
-      .eq("id", auth.sourceId)
-  }
+  await supabase
+    .from("accounts")
+    .update({ last_seen: new Date().toISOString() })
+    .eq("id", auth.accountId)
 
   let triggered = 0
   // Conta inativa: candles ainda são salvos (histórico), mas o motor de regras
@@ -180,7 +142,7 @@ export async function POST(request: NextRequest) {
           symbol,
           source,
           tf,
-          accountId: accountId || null,
+          accountId,
         })
         triggered += res.signals.length
       } catch (err) {

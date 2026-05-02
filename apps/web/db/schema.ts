@@ -79,10 +79,9 @@ export const rules = pgTable(
     logicJson: jsonb("logic_json").notNull(),
     symbol: text("symbol").notNull(),
     tf: text("tf").notNull().default("M5"),
-    sourcePref: text("source_pref").references(() => dataSources.id),
-    accountId: uuid("account_id").references(() => accounts.id, {
-      onDelete: "set null",
-    }),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
     active: boolean("active").default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
