@@ -15,6 +15,7 @@ interface BootstrapInput {
   ingestToken: string
   symbols?: string
   timeframes?: string
+  mt5Path?: string | null
 }
 
 const DEFAULT_SYMBOLS = "WIN@N,WDO@N"
@@ -29,6 +30,8 @@ export function generateBootstrapScript(input: BootstrapInput): {
   const symbols = input.symbols ?? DEFAULT_SYMBOLS
   const timeframes = input.timeframes ?? DEFAULT_TIMEFRAMES
 
+  const mt5Path = input.mt5Path?.trim() || ""
+
   if (input.os === "windows") {
     return {
       filename: "pulse-agent-start.bat",
@@ -38,6 +41,7 @@ export function generateBootstrapScript(input: BootstrapInput): {
         ingestToken: input.ingestToken,
         symbols,
         timeframes,
+        mt5Path,
       }),
     }
   }
@@ -50,6 +54,7 @@ export function generateBootstrapScript(input: BootstrapInput): {
       ingestToken: input.ingestToken,
       symbols,
       timeframes,
+      mt5Path,
       isMac: input.os === "mac",
     }),
   }
@@ -60,7 +65,9 @@ function windowsScript(p: {
   ingestToken: string
   symbols: string
   timeframes: string
+  mt5Path: string
 }): string {
+  const mt5Path = p.mt5Path || MT5_DEFAULT_PATH
   return `@echo off
 setlocal enabledelayedexpansion
 
@@ -109,23 +116,19 @@ echo [4/5] Configurando .env...
   echo SOURCE=mt5
   echo INGEST_URL=${p.ingestUrl}
   echo INGEST_TOKEN=${p.ingestToken}
+  echo MT5_PATH=${mt5Path}
   echo SYMBOLS=${p.symbols}
   echo TIMEFRAMES=${p.timeframes}
 )
 
 echo [5/5] Abrindo MetaTrader 5 e iniciando agent...
-if exist "${MT5_DEFAULT_PATH}" (
-  tasklist /fi "imagename eq terminal64.exe" 2>nul | find /i "terminal64.exe" >nul
-  if errorlevel 1 (
-    start "" "${MT5_DEFAULT_PATH}"
-    echo MT5 iniciando... aguarde alguns segundos para fazer login.
-    timeout /t 8 >nul
-  ) else (
-    echo MT5 ja esta aberto.
-  )
+if exist "${mt5Path}" (
+  start "" "${mt5Path}"
+  echo MT5 desta conta iniciando... aguarde alguns segundos para fazer login.
+  timeout /t 8 >nul
 ) else (
-  echo [AVISO] terminal64.exe nao encontrado em "${MT5_DEFAULT_PATH}".
-  echo Abra o MetaTrader 5 manualmente e faca login antes de prosseguir.
+  echo [AVISO] terminal64.exe nao encontrado em "${mt5Path}".
+  echo Abra o MetaTrader 5 desta conta manualmente e faca login antes de prosseguir.
   pause
 )
 
@@ -145,6 +148,7 @@ function unixScript(p: {
   ingestToken: string
   symbols: string
   timeframes: string
+  mt5Path: string
   isMac: boolean
 }): string {
   const macWarning = p.isMac
@@ -200,6 +204,7 @@ cat > .env <<EOF
 SOURCE=mt5
 INGEST_URL=${p.ingestUrl}
 INGEST_TOKEN=${p.ingestToken}
+MT5_PATH=${p.mt5Path}
 SYMBOLS=${p.symbols}
 TIMEFRAMES=${p.timeframes}
 EOF

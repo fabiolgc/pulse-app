@@ -16,6 +16,7 @@ import type { RuleLogic, SourceId } from "@/types"
 type RuleRow = {
   id: string
   user_id: string
+  account_id: string | null
   name: string
   description: string
   symbol: string
@@ -24,6 +25,12 @@ type RuleRow = {
   active: boolean
   logic_json: RuleLogic
   created_at: string
+}
+
+type AccountSummary = {
+  id: string
+  label: string
+  broker: string
 }
 
 type AlertRow = {
@@ -70,6 +77,7 @@ export default function RuleDetailPage() {
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
   const [rule, setRule] = useState<RuleRow | null>(null)
+  const [account, setAccount] = useState<AccountSummary | null>(null)
   const [alerts, setAlerts] = useState<AlertRow[]>([])
   const [candles, setCandles] = useState<CandlestickData[] | null>(null)
   const [loading, setLoading] = useState(true)
@@ -94,22 +102,29 @@ export default function RuleDetailPage() {
       const r = ruleData as RuleRow
       setRule(r)
 
-      const source = r.source_pref ?? "mt5"
-      const [candleRes, alertRes] = await Promise.all([
-        supabase
-          .from("candles_history")
-          .select("time, open, high, low, close")
-          .eq("symbol", r.symbol)
-          .eq("source", source)
-          .eq("tf", r.tf)
-          .order("time", { ascending: false })
-          .limit(500),
+      let candlesQ = supabase
+        .from("candles_history")
+        .select("time, open, high, low, close")
+        .eq("symbol", r.symbol)
+        .eq("tf", r.tf)
+        .order("time", { ascending: false })
+        .limit(500)
+      if (r.account_id) candlesQ = candlesQ.eq("account_id", r.account_id)
+      else candlesQ = candlesQ.eq("source", r.source_pref ?? "mt5").is("account_id", null)
+
+      const accountQ = r.account_id
+        ? supabase.from("accounts").select("id, label, broker").eq("id", r.account_id).maybeSingle()
+        : Promise.resolve({ data: null })
+
+      const [candleRes, alertRes, accountRes] = await Promise.all([
+        candlesQ,
         supabase
           .from("alerts")
           .select("*")
           .eq("rule_id", r.id)
           .order("triggered_at", { ascending: false })
           .limit(100),
+        accountQ,
       ])
       if (!mounted) return
 
@@ -135,6 +150,7 @@ export default function RuleDetailPage() {
       }
 
       setAlerts((alertRes.data ?? []) as AlertRow[])
+      if (accountRes.data) setAccount(accountRes.data as AccountSummary)
       setLoading(false)
     }
     load()
@@ -209,6 +225,11 @@ export default function RuleDetailPage() {
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-lg font-semibold">{rule.name}</h2>
+                      {account && (
+                        <Badge variant="outline" className="text-xs">
+                          {account.label}
+                        </Badge>
+                      )}
                       <Badge variant="outline">{rule.symbol}</Badge>
                       <Badge variant="outline">{rule.tf}</Badge>
                       {rule.active ? (

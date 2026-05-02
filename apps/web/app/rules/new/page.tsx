@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import Link from "next/link"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Sparkles, Save, Loader2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,8 +12,18 @@ import { Select } from "@/components/ui/select"
 import { AppHeader } from "@/components/app-header"
 import { createClient } from "@/lib/supabase"
 
+type AccountOption = {
+  id: string
+  label: string
+  broker: string
+}
+
 export default function NewRulePage() {
   const router = useRouter()
+  const supabase = useMemo(() => createClient(), [])
+  const [accounts, setAccounts] = useState<AccountOption[]>([])
+  const [loadingAccounts, setLoadingAccounts] = useState(true)
+  const [accountId, setAccountId] = useState("")
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [symbol, setSymbol] = useState("WINFUT")
@@ -21,6 +32,25 @@ export default function NewRulePage() {
   const [isInterpreting, setIsInterpreting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    supabase
+      .from("accounts")
+      .select("id, label, broker")
+      .eq("active", true)
+      .order("created_at", { ascending: true })
+      .then(({ data }) => {
+        if (!mounted) return
+        const list = (data ?? []) as AccountOption[]
+        setAccounts(list)
+        if (list[0]) setAccountId(list[0].id)
+        setLoadingAccounts(false)
+      })
+    return () => {
+      mounted = false
+    }
+  }, [supabase])
 
   async function handleInterpret() {
     if (!description.trim()) return
@@ -43,10 +73,9 @@ export default function NewRulePage() {
   }
 
   async function handleSave() {
-    if (!logicJson || !name.trim()) return
+    if (!logicJson || !name.trim() || !accountId) return
     setIsSaving(true)
     setError(null)
-    const supabase = createClient()
     const {
       data: { user },
       error: userErr,
@@ -60,6 +89,7 @@ export default function NewRulePage() {
       .from("rules")
       .insert({
         user_id: user.id,
+        account_id: accountId,
         name: name.trim(),
         description: description.trim(),
         logic_json: logicJson,
@@ -84,11 +114,43 @@ export default function NewRulePage() {
       <main className="p-6 max-w-3xl mx-auto space-y-6">
         <h2 className="text-lg font-semibold">Nova Regra de Trading</h2>
 
+        {!loadingAccounts && accounts.length === 0 && (
+          <Card>
+            <CardContent className="py-6 text-sm space-y-2">
+              <p>Você precisa cadastrar uma conta MT5 antes de criar regras.</p>
+              <Link
+                href="/settings/accounts"
+                className="text-primary underline underline-offset-2"
+              >
+                Cadastrar conta →
+              </Link>
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Descreva sua regra em português</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div>
+              <label className="text-xs text-muted-foreground">Conta</label>
+              <Select
+                value={accountId}
+                onChange={(e) => setAccountId(e.target.value)}
+                disabled={loadingAccounts || accounts.length === 0}
+              >
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label} ({a.broker})
+                  </option>
+                ))}
+              </Select>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                A regra usará os candles dessa conta. Símbolos disponíveis dependem
+                da corretora.
+              </p>
+            </div>
             <Input
               placeholder="Nome da regra (ex: RSI Oversold + EMA Cross)"
               value={name}
@@ -154,7 +216,10 @@ export default function NewRulePage() {
               <pre className="bg-secondary rounded-lg p-4 text-xs font-mono overflow-x-auto">
                 {JSON.stringify(logicJson, null, 2)}
               </pre>
-              <Button onClick={handleSave} disabled={!name.trim() || isSaving}>
+              <Button
+                onClick={handleSave}
+                disabled={!name.trim() || !accountId || isSaving}
+              >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {isSaving ? "Salvando..." : "Salvar Regra"}
               </Button>

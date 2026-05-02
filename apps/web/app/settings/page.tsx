@@ -11,14 +11,15 @@ export default function SettingsPage() {
       <main className="p-6 max-w-2xl space-y-6">
         <h2 className="text-lg font-semibold">Configurações</h2>
 
-        <Link href="/settings/agent" className="block">
+        <Link href="/settings/accounts" className="block">
           <Card className="hover:bg-muted/40 transition-colors">
             <CardContent className="py-4 flex items-center gap-3">
               <Server className="h-4 w-4 text-muted-foreground" />
               <div className="flex-1">
-                <p className="text-sm font-medium">Agent local (MetaTrader 5)</p>
+                <p className="text-sm font-medium">Contas MT5</p>
                 <p className="text-xs text-muted-foreground">
-                  Status do agent, SO e download do script de inicialização.
+                  Cadastre suas contas (XP, Hantec, demo) e baixe os scripts de
+                  inicialização do agent.
                 </p>
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground" />

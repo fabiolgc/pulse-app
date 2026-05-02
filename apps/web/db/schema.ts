@@ -24,6 +24,21 @@ export const dataSources = pgTable("data_sources", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 })
 
+// --- accounts ---
+
+export const accounts = pgTable("accounts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull(),
+  label: text("label").notNull(),
+  broker: text("broker").notNull(),
+  accountType: text("account_type").notNull(),
+  mt5Path: text("mt5_path"),
+  tokenHash: text("token_hash").notNull().unique(),
+  lastSeen: timestamp("last_seen", { withTimezone: true }),
+  active: boolean("active").default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+})
+
 // --- candles_history ---
 
 export const candlesHistory = pgTable(
@@ -33,6 +48,9 @@ export const candlesHistory = pgTable(
     source: text("source")
       .notNull()
       .references(() => dataSources.id),
+    accountId: uuid("account_id").references(() => accounts.id, {
+      onDelete: "cascade",
+    }),
     symbol: text("symbol").notNull(),
     tf: text("tf").notNull(),
     time: bigint("time", { mode: "number" }).notNull(),
@@ -62,6 +80,9 @@ export const rules = pgTable(
     symbol: text("symbol").notNull(),
     tf: text("tf").notNull().default("M5"),
     sourcePref: text("source_pref").references(() => dataSources.id),
+    accountId: uuid("account_id").references(() => accounts.id, {
+      onDelete: "set null",
+    }),
     active: boolean("active").default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
@@ -84,6 +105,9 @@ export const alerts = pgTable(
     source: text("source")
       .notNull()
       .references(() => dataSources.id),
+    accountId: uuid("account_id").references(() => accounts.id, {
+      onDelete: "set null",
+    }),
     symbol: text("symbol").notNull(),
     price: numeric("price").notNull(),
     message: text("message").notNull(),

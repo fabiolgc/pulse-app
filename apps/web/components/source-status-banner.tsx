@@ -5,22 +5,18 @@ import { useEffect, useMemo, useState } from "react"
 import { AlertTriangle } from "lucide-react"
 import { createClient } from "@/lib/supabase"
 
-type DataSourceRow = {
+type AccountRow = {
   id: string
   label: string
   last_seen: string | null
 }
 
-type ActiveRuleRow = {
-  source_pref: string | null
-}
-
-const STALE_THRESHOLD_MS = 5 * 60 * 1000 // 5 minutos sem heartbeat = stale
+const STALE_THRESHOLD_MS = 5 * 60 * 1000
 const POLL_INTERVAL_MS = 60_000
 
 export function SourceStatusBanner() {
   const supabase = useMemo(() => createClient(), [])
-  const [missing, setMissing] = useState<DataSourceRow[]>([])
+  const [stale, setStale] = useState<AccountRow[]>([])
   const [authed, setAuthed] = useState(false)
 
   useEffect(() => {
@@ -33,41 +29,42 @@ export function SourceStatusBanner() {
       if (cancelled) return
       if (!user) {
         setAuthed(false)
-        setMissing([])
+        setStale([])
         return
       }
       setAuthed(true)
 
+      // Quais contas 'importam': as referenciadas por pelo menos uma regra ativa.
       const { data: rules } = await supabase
         .from("rules")
-        .select("source_pref")
+        .select("account_id")
         .eq("user_id", user.id)
         .eq("active", true)
+        .not("account_id", "is", null)
 
       if (cancelled) return
-      if (!rules || rules.length === 0) {
-        setMissing([])
+      const neededIds = new Set<string>()
+      for (const r of rules ?? []) {
+        if (r.account_id) neededIds.add(r.account_id as string)
+      }
+      if (neededIds.size === 0) {
+        setStale([])
         return
       }
 
-      const neededSources = new Set<string>()
-      for (const r of rules as ActiveRuleRow[]) {
-        neededSources.add(r.source_pref ?? "mt5")
-      }
-
-      const { data: sources } = await supabase
-        .from("data_sources")
+      const { data: accounts } = await supabase
+        .from("accounts")
         .select("id, label, last_seen")
-        .in("id", Array.from(neededSources))
+        .in("id", Array.from(neededIds))
 
-      if (cancelled || !sources) return
+      if (cancelled || !accounts) return
 
       const now = Date.now()
-      const stale = (sources as DataSourceRow[]).filter((s) => {
-        if (!s.last_seen) return true
-        return now - new Date(s.last_seen).getTime() > STALE_THRESHOLD_MS
+      const offline = (accounts as AccountRow[]).filter((a) => {
+        if (!a.last_seen) return true
+        return now - new Date(a.last_seen).getTime() > STALE_THRESHOLD_MS
       })
-      setMissing(stale)
+      setStale(offline)
     }
 
     check()
@@ -78,23 +75,23 @@ export function SourceStatusBanner() {
     }
   }, [supabase])
 
-  if (!authed || missing.length === 0) return null
+  if (!authed || stale.length === 0) return null
 
-  const labels = missing.map((s) => s.label).join(", ")
+  const labels = stale.map((a) => a.label).join(", ")
 
   return (
     <div className="border-b border-amber-500/40 bg-amber-500/10 px-6 py-2 text-sm">
       <div className="flex flex-wrap items-center gap-2 text-amber-700 dark:text-amber-400">
         <AlertTriangle className="h-4 w-4 shrink-0" />
         <span>
-          <strong>{labels}</strong> sem heartbeat. Suas regras ativas não vão
-          disparar até a fonte voltar a empurrar dados.
+          <strong>{labels}</strong> sem heartbeat. Suas regras ativas dessa(s)
+          conta(s) não vão disparar até o agent voltar.
         </span>
         <Link
-          href="/settings/agent"
+          href="/settings/accounts"
           className="underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200"
         >
-          Como conectar →
+          Ver contas →
         </Link>
       </div>
     </div>

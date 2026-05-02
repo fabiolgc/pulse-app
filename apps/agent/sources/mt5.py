@@ -42,8 +42,12 @@ class MT5Source:
         login = int(os.environ.get("MT5_LOGIN", "0"))
         password = os.environ.get("MT5_PASSWORD", "")
         server = os.environ.get("MT5_SERVER", "")
+        # MT5_PATH aponta pro terminal64.exe específico desta conta — necessário
+        # quando há múltiplas instalações de MT5 (XP + Hantec + ...) abertas.
+        path = os.environ.get("MT5_PATH", "").strip()
 
-        if not mt5.initialize():
+        init_ok = mt5.initialize(path=path) if path else mt5.initialize()
+        if not init_ok:
             raise RuntimeError(f"MT5 initialize() failed: {mt5.last_error()}")
 
         if login and password:

@@ -60,6 +60,21 @@ export interface RuleLogic {
   symbol: string
 }
 
+export type AccountBroker = "xp" | "hantec" | "other"
+export type AccountType = "real" | "demo"
+
+export interface Account {
+  id: string
+  userId: string
+  label: string
+  broker: AccountBroker
+  accountType: AccountType
+  mt5Path: string | null
+  lastSeen: string | null
+  active: boolean
+  createdAt: string
+}
+
 export interface Rule {
   id: string
   userId: string
@@ -69,6 +84,7 @@ export interface Rule {
   symbol: string
   tf: string
   sourcePref: SourceId | null
+  accountId: string | null
   active: boolean
   createdAt: string
 }

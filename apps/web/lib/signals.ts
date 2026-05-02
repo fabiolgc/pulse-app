@@ -8,6 +8,8 @@ export interface RunSignalCheckParams {
   symbol: string
   source: string
   tf?: string
+  /** Quando setado, filtra rules e candles por essa conta (multi-conta). */
+  accountId?: string | null
 }
 
 export interface SignalCheckResult {
@@ -26,8 +28,9 @@ export async function runSignalCheck({
   symbol,
   source,
   tf = "M5",
+  accountId = null,
 }: RunSignalCheckParams): Promise<SignalCheckResult> {
-  const { data: candleRows, error: candlesErr } = await supabase
+  let candleQuery = supabase
     .from("candles_history")
     .select("*")
     .eq("symbol", symbol)
@@ -35,6 +38,12 @@ export async function runSignalCheck({
     .eq("tf", tf)
     .order("time", { ascending: true })
     .limit(100)
+
+  candleQuery = accountId
+    ? candleQuery.eq("account_id", accountId)
+    : candleQuery.is("account_id", null)
+
+  const { data: candleRows, error: candlesErr } = await candleQuery
 
   if (candlesErr || !candleRows?.length) {
     return { ok: true, signals: [], reason: "No candle data available" }
@@ -55,11 +64,17 @@ export async function runSignalCheck({
   const prevIndicators =
     candles.length > 1 ? buildIndicators(candles.slice(0, -1)) : undefined
 
-  const { data: activeRules, error: rulesErr } = await supabase
+  let rulesQuery = supabase
     .from("rules")
     .select("*")
     .eq("symbol", symbol)
     .eq("active", true)
+
+  rulesQuery = accountId
+    ? rulesQuery.eq("account_id", accountId)
+    : rulesQuery.is("account_id", null)
+
+  const { data: activeRules, error: rulesErr } = await rulesQuery
 
   if (rulesErr || !activeRules?.length) {
     return { ok: true, signals: [] }
@@ -83,6 +98,7 @@ export async function runSignalCheck({
     await supabase.from("alerts").insert({
       user_id: rule.user_id,
       rule_id: rule.id,
+      account_id: rule.account_id ?? null,
       source,
       symbol,
       price: lastPrice,
