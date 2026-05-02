@@ -83,10 +83,18 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <header className="border-b border-border px-6 py-4">
-        <div className="flex items-center gap-3">
-          <Activity className="h-6 w-6 text-primary" />
-          <h1 className="text-xl font-bold">Pulse</h1>
-          <Badge variant="outline" className="text-xs">Beta</Badge>
+        <div className="flex items-center gap-2.5">
+          <span className="relative inline-flex h-6 w-6 items-center justify-center">
+            <span className="absolute inset-1 rounded-full bg-primary/30 animate-ping" />
+            <Activity className="relative h-5 w-5 text-primary" strokeWidth={2.5} />
+          </span>
+          <h1 className="text-lg font-semibold tracking-tight">Pulse</h1>
+          <Badge
+            variant="outline"
+            className="text-[10px] uppercase tracking-wider font-medium"
+          >
+            Beta
+          </Badge>
         </div>
       </header>
       <main className="flex-1 flex items-center justify-center p-6">
