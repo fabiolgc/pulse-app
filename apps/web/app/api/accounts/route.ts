@@ -7,7 +7,7 @@ import { generateBootstrapScript, type AgentOS } from "@/lib/agent-bootstrap"
 const createSchema = z.object({
   label: z.string().min(1).max(80),
   broker: z.enum(["xp", "hantec", "other"]),
-  account_type: z.enum(["real", "demo"]),
+  account_type: z.enum(["real", "demo"]).optional().nullable(),
   mt5_path: z.string().max(500).optional().nullable(),
 })
 
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
       user_id: user.id,
       label: parsed.data.label.trim(),
       broker: parsed.data.broker,
-      account_type: parsed.data.account_type,
+      account_type: parsed.data.account_type ?? null,
       mt5_path: parsed.data.mt5_path?.trim() || null,
       token_hash: tokenHash,
     })

@@ -20,13 +20,12 @@ import { Select } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { AppHeader } from "@/components/app-header"
 import { createClient } from "@/lib/supabase"
-import type { AccountBroker, AccountType } from "@/types"
+import type { AccountBroker } from "@/types"
 
 type AccountRow = {
   id: string
   label: string
   broker: AccountBroker
-  account_type: AccountType
   mt5_path: string | null
   last_seen: string | null
   active: boolean
@@ -46,7 +45,7 @@ const STALE_THRESHOLD_MS = 5 * 60 * 1000
 
 const BROKERS: { id: AccountBroker; label: string; defaultPath: string | null }[] = [
   { id: "xp", label: "XP Investimentos", defaultPath: "C:\\Program Files\\XP MT5\\terminal64.exe" },
-  { id: "hantec", label: "Hantec Markets", defaultPath: "C:\\Program Files\\Hantec Markets MT5\\terminal64.exe" },
+  { id: "hantec", label: "Hantec Markets", defaultPath: "C:\\Program Files\\Hantec MT5\\terminal64.exe" },
   { id: "other", label: "Outro", defaultPath: "" },
 ]
 
@@ -220,7 +219,6 @@ function AccountCard({
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="font-medium">{account.label}</h3>
               <Badge variant="outline" className="text-xs">{brokerLabel}</Badge>
-              <Badge variant="outline" className="text-xs capitalize">{account.account_type}</Badge>
               {isOnline ? (
                 <Badge className="text-xs bg-emerald-500 text-white inline-flex items-center gap-1">
                   <CheckCircle2 className="h-3 w-3" /> Online
@@ -262,7 +260,6 @@ function AddAccountForm({
 }) {
   const [label, setLabel] = useState("")
   const [broker, setBroker] = useState<AccountBroker>("xp")
-  const [accountType, setAccountType] = useState<AccountType>("real")
   const [mt5Path, setMt5Path] = useState(BROKERS[0].defaultPath ?? "")
   const [saving, setSaving] = useState(false)
 
@@ -282,7 +279,6 @@ function AddAccountForm({
       body: JSON.stringify({
         label: label.trim(),
         broker,
-        account_type: accountType,
         mt5_path: mt5Path.trim() || null,
       }),
     })
@@ -317,22 +313,13 @@ function AddAccountForm({
             onChange={(e) => setLabel(e.target.value)}
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-muted-foreground">Corretora</label>
-            <Select value={broker} onChange={(e) => pickBroker(e.target.value as AccountBroker)}>
-              {BROKERS.map((b) => (
-                <option key={b.id} value={b.id}>{b.label}</option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground">Tipo</label>
-            <Select value={accountType} onChange={(e) => setAccountType(e.target.value as AccountType)}>
-              <option value="real">Real</option>
-              <option value="demo">Demo</option>
-            </Select>
-          </div>
+        <div>
+          <label className="text-xs text-muted-foreground">Corretora</label>
+          <Select value={broker} onChange={(e) => pickBroker(e.target.value as AccountBroker)}>
+            {BROKERS.map((b) => (
+              <option key={b.id} value={b.id}>{b.label}</option>
+            ))}
+          </Select>
         </div>
         <div>
           <label className="text-xs text-muted-foreground">
