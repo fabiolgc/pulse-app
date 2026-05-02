@@ -13,7 +13,10 @@ import { Select } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { AppHeader } from "@/components/app-header"
 import { RuleChart, type ChartMarker } from "@/components/rule-chart"
+import { RuleLogicSummary } from "@/components/rule-logic-summary"
+import { ErrorState } from "@/components/error-state"
 import { createClient } from "@/lib/supabase"
+import { useToast } from "@/lib/toast"
 import type { RuleLogic } from "@/types"
 
 const AUTO_TF = "auto"
@@ -80,19 +83,26 @@ export default function RuleDetailPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
+  const toast = useToast()
   const [rule, setRule] = useState<RuleRow | null>(null)
   const [account, setAccount] = useState<AccountSummary | null>(null)
   const [accountTimeframes, setAccountTimeframes] = useState<string[]>([])
   const [alerts, setAlerts] = useState<AlertRow[]>([])
   const [candles, setCandles] = useState<CandlestickData[] | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [notFound, setNotFound] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [retryToken, setRetryToken] = useState(0)
 
   useEffect(() => {
     if (!params?.id) return
     let mounted = true
+    setLoading(true)
+    setLoadError(null)
+    setNotFound(false)
     async function load() {
       const { data: ruleData, error: ruleErr } = await supabase
         .from("rules")
@@ -100,8 +110,18 @@ export default function RuleDetailPage() {
         .eq("id", params.id)
         .single()
       if (!mounted) return
-      if (ruleErr || !ruleData) {
-        setError(ruleErr?.message ?? "Regra não encontrada")
+      if (ruleErr) {
+        // Supabase retorna PGRST116 quando .single() não encontra
+        if ((ruleErr as { code?: string }).code === "PGRST116") {
+          setNotFound(true)
+        } else {
+          setLoadError(ruleErr.message)
+        }
+        setLoading(false)
+        return
+      }
+      if (!ruleData) {
+        setNotFound(true)
         setLoading(false)
         return
       }
@@ -168,7 +188,7 @@ export default function RuleDetailPage() {
     return () => {
       mounted = false
     }
-  }, [supabase, params?.id])
+  }, [supabase, params?.id, retryToken])
 
   useEffect(() => {
     if (!rule) return
@@ -235,12 +255,23 @@ export default function RuleDetailPage() {
   async function toggleActive() {
     if (!rule) return
     setBusy(true)
+    setActionError(null)
+    const wasActive = rule.active
     const { error: err } = await supabase
       .from("rules")
-      .update({ active: !rule.active })
+      .update({ active: !wasActive })
       .eq("id", rule.id)
-    if (err) setError(err.message)
-    else setRule({ ...rule, active: !rule.active })
+    if (err) {
+      setActionError(err.message)
+      toast.error(`Não consegui ${wasActive ? "desativar" : "ativar"}: ${err.message}`)
+    } else {
+      setRule({ ...rule, active: !rule.active })
+      toast.success(
+        wasActive
+          ? `${rule.name} pausada`
+          : `${rule.name} ativada — vai disparar no próximo candle`
+      )
+    }
     setBusy(false)
   }
 
@@ -253,18 +284,20 @@ export default function RuleDetailPage() {
   }) {
     if (!rule) return
     setBusy(true)
-    setError(null)
+    setActionError(null)
     const { error: err } = await supabase
       .from("rules")
       .update(patch)
       .eq("id", rule.id)
     setBusy(false)
     if (err) {
-      setError(err.message)
+      setActionError(err.message)
+      toast.error(`Não consegui salvar: ${err.message}`)
       return
     }
     setRule({ ...rule, ...patch })
     setEditing(false)
+    toast.success("Regra atualizada")
   }
 
   const markers = useMemo(() => alerts.map(alertToMarker), [alerts])
@@ -273,13 +306,17 @@ export default function RuleDetailPage() {
     <div className="min-h-screen bg-background">
       <AppHeader />
 
-      <main className="p-6 max-w-5xl mx-auto space-y-6">
+      <main className="px-6 py-6 max-w-7xl mx-auto space-y-6">
         <Link
           href="/dashboard"
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft className="h-4 w-4" /> Voltar
+          <ArrowLeft className="h-4 w-4" /> Voltar para regras
         </Link>
+
+        {actionError && (
+          <p className="text-sm text-destructive">{actionError}</p>
+        )}
 
         {loading ? (
           <Card>
@@ -287,18 +324,46 @@ export default function RuleDetailPage() {
               <Loader2 className="h-5 w-5 animate-spin mx-auto" />
             </CardContent>
           </Card>
-        ) : error ? (
+        ) : notFound ? (
           <Card>
-            <CardContent className="py-12 text-center text-destructive text-sm">{error}</CardContent>
+            <div className="py-10 px-6 text-center">
+              <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground ring-1 ring-border">
+                <BarChart3 className="h-5 w-5" />
+              </div>
+              <p className="text-sm font-medium">Regra não encontrada</p>
+              <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto">
+                Esta regra pode ter sido removida ou você não tem acesso a ela.
+              </p>
+              <Link href="/dashboard">
+                <Button size="sm" variant="outline" className="mt-4">
+                  <ArrowLeft className="h-4 w-4" />
+                  Voltar para regras
+                </Button>
+              </Link>
+            </div>
+          </Card>
+        ) : loadError ? (
+          <Card>
+            <ErrorState
+              message={
+                <>
+                  Não consegui carregar esta regra. {loadError}
+                  <br />
+                  Verifique sua conexão e tente novamente.
+                </>
+              }
+              onRetry={() => setRetryToken((t) => t + 1)}
+              retrying={loading}
+            />
           </Card>
         ) : rule ? (
           <>
             <Card>
               <CardContent className="py-4 space-y-3">
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-lg font-semibold">{rule.name}</h2>
+                      <h2 className="text-xl font-semibold tracking-tight">{rule.name}</h2>
                       {account && (
                         <Badge variant="outline" className="text-xs">
                           {account.label}
@@ -314,7 +379,7 @@ export default function RuleDetailPage() {
                     </div>
                     <p className="text-sm text-muted-foreground">{rule.description}</p>
                   </div>
-                  <div className="flex shrink-0 gap-2 flex-wrap justify-end">
+                  <div className="flex flex-wrap items-center gap-2 lg:shrink-0 lg:justify-end">
                     <Button
                       size="sm"
                       variant={rule.active ? "secondary" : "default"}
@@ -372,26 +437,33 @@ export default function RuleDetailPage() {
               </CardHeader>
               <CardContent>
                 {alerts.length === 0 ? (
-                  <div className="py-12 text-center text-muted-foreground">
-                    <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p className="text-sm">Esta regra ainda não disparou alertas.</p>
+                  <div className="py-10 text-center">
+                    <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15">
+                      <BarChart3 className="h-5 w-5" />
+                    </div>
+                    <p className="text-sm font-medium">Sem alertas ainda</p>
+                    <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto">
+                      {rule.active
+                        ? "A regra está ativa — o Pulse vai notificar aqui e no Telegram quando o setup acontecer."
+                        : "Ative a regra acima para começar a receber alertas. Ou rode um backtest para ver como ela teria performado."}
+                    </p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
+                    <table className="w-full min-w-[560px] text-xs">
                       <thead className="text-left text-muted-foreground">
-                        <tr className="border-b">
-                          <th className="py-2 pr-3">Quando</th>
-                          <th className="py-2 pr-3">Direção</th>
-                          <th className="py-2 pr-3">Fonte</th>
-                          <th className="py-2 pr-3 text-right">Preço</th>
-                          <th className="py-2 pr-3">Mensagem</th>
+                        <tr className="border-b border-border">
+                          <th className="py-2 pr-3 font-normal text-[11px] uppercase tracking-wider">Quando</th>
+                          <th className="py-2 pr-3 font-normal text-[11px] uppercase tracking-wider">Direção</th>
+                          <th className="py-2 pr-3 font-normal text-[11px] uppercase tracking-wider">Fonte</th>
+                          <th className="py-2 pr-3 text-right font-normal text-[11px] uppercase tracking-wider">Preço</th>
+                          <th className="py-2 pr-3 font-normal text-[11px] uppercase tracking-wider">Mensagem</th>
                         </tr>
                       </thead>
                       <tbody>
                         {alerts.map((a) => (
                           <tr key={a.id} className="border-b last:border-0">
-                            <td className="py-2 pr-3 whitespace-nowrap">
+                            <td className="py-2 pr-3 whitespace-nowrap font-mono tabular-nums text-[11px]">
                               {formatDateTime(a.triggered_at)}
                             </td>
                             <td className="py-2 pr-3">
@@ -400,7 +472,7 @@ export default function RuleDetailPage() {
                               </Badge>
                             </td>
                             <td className="py-2 pr-3 text-muted-foreground">{a.source}</td>
-                            <td className="py-2 pr-3 text-right tabular-nums">
+                            <td className="py-2 pr-3 text-right font-mono tabular-nums">
                               {formatPrice(a.price)}
                             </td>
                             <td className="py-2 pr-3 text-muted-foreground">{a.message}</td>
@@ -415,12 +487,10 @@ export default function RuleDetailPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-sm">Lógica (JSON gerado)</CardTitle>
+                <CardTitle className="text-sm">Como esta regra funciona</CardTitle>
               </CardHeader>
               <CardContent>
-                <pre className="bg-secondary rounded-lg p-4 text-xs font-mono overflow-x-auto">
-                  {JSON.stringify(rule.logic_json, null, 2)}
-                </pre>
+                <RuleLogicSummary logic={rule.logic_json} />
               </CardContent>
             </Card>
           </>
@@ -575,9 +645,12 @@ function EditRuleForm({
           )}
         </div>
         {err && <p className="text-sm text-destructive">{err}</p>}
-        <pre className="bg-secondary rounded-lg p-3 text-[11px] font-mono overflow-x-auto max-h-48">
-          {JSON.stringify(logic, null, 2)}
-        </pre>
+        <div className="rounded-md border border-border bg-muted/30 p-4">
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
+            Pré-visualização da lógica
+          </p>
+          <RuleLogicSummary logic={logic} />
+        </div>
         <div className="flex gap-2">
           <Button onClick={submit} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}

@@ -3,14 +3,18 @@
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Sparkles, Save, Loader2 } from "lucide-react"
+import { Plus, Server, Sparkles, Save, Loader2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select } from "@/components/ui/select"
 import { AppHeader } from "@/components/app-header"
+import { EmptyState } from "@/components/empty-state"
+import { RuleLogicSummary } from "@/components/rule-logic-summary"
 import { createClient } from "@/lib/supabase"
+import { useToast } from "@/lib/toast"
+import type { RuleLogic } from "@/types"
 
 type AccountOption = {
   id: string
@@ -24,6 +28,7 @@ const AUTO_TF = "auto"
 export default function NewRulePage() {
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
+  const toast = useToast()
   const [accounts, setAccounts] = useState<AccountOption[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(true)
   const [accountId, setAccountId] = useState("")
@@ -31,7 +36,7 @@ export default function NewRulePage() {
   const [description, setDescription] = useState("")
   const [symbol, setSymbol] = useState("WINFUT")
   const [timeframe, setTimeframe] = useState<string>(AUTO_TF)
-  const [logicJson, setLogicJson] = useState<Record<string, unknown> | null>(null)
+  const [logicJson, setLogicJson] = useState<RuleLogic | null>(null)
   const [isInterpreting, setIsInterpreting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -75,7 +80,7 @@ export default function NewRulePage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Erro ao interpretar regra")
-      setLogicJson(data.logic)
+      setLogicJson(data.logic as RuleLogic)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro desconhecido")
     } finally {
@@ -117,9 +122,12 @@ export default function NewRulePage() {
       .single()
     setIsSaving(false)
     if (insertErr || !inserted) {
-      setError(insertErr?.message ?? "Erro ao salvar")
+      const msg = insertErr?.message ?? "Erro ao salvar"
+      setError(msg)
+      toast.error(`Não consegui salvar: ${msg}`)
       return
     }
+    toast.success(`${name.trim()} criada — pausada por padrão`)
     router.push(`/rules/${inserted.id}`)
   }
 
@@ -127,20 +135,33 @@ export default function NewRulePage() {
     <div className="min-h-screen bg-background">
       <AppHeader />
 
-      <main className="p-6 max-w-3xl mx-auto space-y-6">
-        <h2 className="text-lg font-semibold">Nova Regra de Trading</h2>
+      <main className="px-6 py-6 max-w-3xl mx-auto">
+        <header className="mb-8">
+          <h2 className="text-2xl font-semibold tracking-tight">Nova regra</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Descreva em português; Claude transforma em lógica executável.
+          </p>
+        </header>
+
+        <div className="space-y-6">
 
         {!loadingAccounts && accounts.length === 0 && (
           <Card>
-            <CardContent className="py-6 text-sm space-y-2">
-              <p>Você precisa cadastrar uma conta MT5 antes de criar regras.</p>
-              <Link
-                href="/settings/accounts"
-                className="text-primary underline underline-offset-2"
-              >
-                Cadastrar conta →
-              </Link>
-            </CardContent>
+            <EmptyState
+              icon={<Server className="h-5 w-5" />}
+              title="Cadastre uma conta MT5 primeiro"
+              description={
+                <>
+                  Regras precisam saber qual conta monitorar — os candles vêm
+                  do agent local rodando ao lado do MT5 dessa conta.
+                </>
+              }
+              primaryAction={{
+                label: "Cadastrar conta",
+                href: "/settings/accounts",
+                icon: <Plus className="h-4 w-4" />,
+              }}
+            />
           </Card>
         )}
 
@@ -225,30 +246,30 @@ export default function NewRulePage() {
         </Card>
 
         {logicJson && (
-          <Card>
+          <Card className="border-primary/30">
             <CardHeader>
-              <CardTitle className="text-sm">Lógica gerada</CardTitle>
+              <CardTitle className="text-sm">Confira o que a regra vai fazer</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {timeframe === AUTO_TF && logicJson.timeframe ? (
                 <p className="text-xs text-muted-foreground">
-                  Claude escolheu timeframe <strong>{String(logicJson.timeframe)}</strong>{" "}
+                  Claude escolheu o timeframe{" "}
+                  <span className="font-mono text-foreground">{String(logicJson.timeframe)}</span>{" "}
                   com base na estratégia descrita.
                 </p>
               ) : null}
-              <pre className="bg-secondary rounded-lg p-4 text-xs font-mono overflow-x-auto">
-                {JSON.stringify(logicJson, null, 2)}
-              </pre>
+              <RuleLogicSummary logic={logicJson} />
               <Button
                 onClick={handleSave}
                 disabled={!name.trim() || !accountId || isSaving}
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                {isSaving ? "Salvando..." : "Salvar Regra"}
+                {isSaving ? "Salvando..." : "Salvar regra"}
               </Button>
             </CardContent>
           </Card>
         )}
+        </div>
       </main>
     </div>
   )
