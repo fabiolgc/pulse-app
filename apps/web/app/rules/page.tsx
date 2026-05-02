@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { Plus, Trash2, Loader2 } from "lucide-react"
+import { Pencil, Plus, Trash2, Loader2 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -108,8 +108,8 @@ export default function RulesPage() {
               <Card key={rule.id}>
                 <CardContent className="py-4">
                   <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                    <Link href={`/rules/${rule.id}`} className="min-w-0 flex-1 hover:opacity-80 transition-opacity">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-medium">{rule.name}</h3>
                         <Badge variant="outline" className="text-xs">
                           {rule.symbol}
@@ -124,7 +124,7 @@ export default function RulesPage() {
                       <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
                         {rule.description}
                       </p>
-                    </div>
+                    </Link>
                     <div className="flex items-center gap-2 shrink-0">
                       <Button
                         size="sm"
@@ -140,6 +140,11 @@ export default function RulesPage() {
                           "Ativar"
                         )}
                       </Button>
+                      <Link href={`/rules/${rule.id}`}>
+                        <Button size="sm" variant="outline" title="Editar / detalhes">
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </Link>
                       <Button
                         size="sm"
                         variant="ghost"
