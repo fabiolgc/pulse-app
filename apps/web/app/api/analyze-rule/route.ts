@@ -6,6 +6,7 @@ const requestSchema = z.object({
   description: z.string().min(1),
   symbol: z.string().optional(),
   timeframe: z.string().optional(),
+  availableTimeframes: z.array(z.string()).optional(),
 })
 
 export async function POST(request: NextRequest) {
@@ -29,6 +30,7 @@ export async function POST(request: NextRequest) {
       description: parsed.data.description,
       symbol: parsed.data.symbol,
       timeframe: parsed.data.timeframe,
+      availableTimeframes: parsed.data.availableTimeframes,
     })
     return NextResponse.json({ ok: true, logic: ruleLogic })
   } catch (err) {

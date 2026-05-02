@@ -37,7 +37,15 @@ O JSON deve seguir este schema:
 
 Se o usuário não especificar stop/gain, use stop_points: 200, gain_points: 400, ratio: 2.0 como padrão.
 Se o usuário não especificar símbolo, use "WINFUT".
-Se o usuário não especificar timeframe, use "M5".` as const
+
+ESCOLHA DE TIMEFRAME:
+- Se o usuário **especificar** o timeframe, use esse valor.
+- Se o usuário **não especificar** ou pedir explicitamente que você escolha, analise a estratégia descrita:
+  - Scalping / entradas rápidas / múltiplos trades por dia → M1 ou M5
+  - Swing curto / setups intradia / RSI + médias → M15 ou M30
+  - Swing longo / tendência / médias longas (EMA200) → H1
+  - Quando incerto, prefira M15 (bom equilíbrio sinal/ruído).
+- Se o contexto trouxer "Timeframes disponíveis: [...]", **escolha apenas dentre esses** — outros TFs não terão candles ingestados.` as const
 
 const SIGNAL_ANALYSIS_PROMPT = `Você é um analista de minicontratos brasileiros (WIN/WDO).
 Analise os dados e verifique se as regras ativas foram disparadas.
@@ -57,13 +65,22 @@ export interface InterpretRuleParams {
   description: string
   symbol?: string
   timeframe?: string
+  availableTimeframes?: string[]
 }
 
-export async function interpretRule({ description, symbol, timeframe }: InterpretRuleParams) {
+export async function interpretRule({
+  description,
+  symbol,
+  timeframe,
+  availableTimeframes,
+}: InterpretRuleParams) {
   const userMessage = [
     description,
     symbol ? `Símbolo: ${symbol}` : "",
     timeframe ? `Timeframe: ${timeframe}` : "",
+    !timeframe && availableTimeframes && availableTimeframes.length > 0
+      ? `Timeframes disponíveis (escolha um): ${availableTimeframes.join(", ")}`
+      : "",
   ]
     .filter(Boolean)
     .join("\n")

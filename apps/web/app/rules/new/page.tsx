@@ -16,7 +16,10 @@ type AccountOption = {
   id: string
   label: string
   broker: string
+  timeframes: string[]
 }
+
+const AUTO_TF = "auto"
 
 export default function NewRulePage() {
   const router = useRouter()
@@ -27,7 +30,7 @@ export default function NewRulePage() {
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [symbol, setSymbol] = useState("WINFUT")
-  const [timeframe, setTimeframe] = useState("M5")
+  const [timeframe, setTimeframe] = useState<string>(AUTO_TF)
   const [logicJson, setLogicJson] = useState<Record<string, unknown> | null>(null)
   const [isInterpreting, setIsInterpreting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -37,7 +40,7 @@ export default function NewRulePage() {
     let mounted = true
     supabase
       .from("accounts")
-      .select("id, label, broker")
+      .select("id, label, broker, timeframes")
       .eq("active", true)
       .order("created_at", { ascending: true })
       .then(({ data }) => {
@@ -52,15 +55,23 @@ export default function NewRulePage() {
     }
   }, [supabase])
 
+  const selectedAccount = accounts.find((a) => a.id === accountId)
+
   async function handleInterpret() {
     if (!description.trim()) return
     setIsInterpreting(true)
     setError(null)
     try {
+      const isAuto = timeframe === AUTO_TF
+      const body: Record<string, unknown> = { description, symbol }
+      if (!isAuto) body.timeframe = timeframe
+      if (isAuto && selectedAccount?.timeframes?.length) {
+        body.availableTimeframes = selectedAccount.timeframes
+      }
       const res = await fetch("/api/analyze-rule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description, symbol, timeframe }),
+        body: JSON.stringify(body),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Erro ao interpretar regra")
@@ -85,6 +96,11 @@ export default function NewRulePage() {
       setIsSaving(false)
       return
     }
+    // Quando Auto, usa o timeframe que o Claude escolheu (vem em logicJson.timeframe)
+    const finalTf =
+      timeframe === AUTO_TF
+        ? (logicJson.timeframe as string) || "M15"
+        : timeframe
     const { data: inserted, error: insertErr } = await supabase
       .from("rules")
       .insert({
@@ -94,7 +110,7 @@ export default function NewRulePage() {
         description: description.trim(),
         logic_json: logicJson,
         symbol,
-        tf: timeframe,
+        tf: finalTf,
         active: false,
       })
       .select("id")
@@ -189,6 +205,7 @@ export default function NewRulePage() {
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Timeframe</label>
                 <Select value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
+                  <option value={AUTO_TF}>Auto (Claude decide)</option>
                   <option value="M1">M1</option>
                   <option value="M5">M5</option>
                   <option value="M15">M15</option>
@@ -213,6 +230,12 @@ export default function NewRulePage() {
               <CardTitle className="text-sm">Lógica gerada</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {timeframe === AUTO_TF && logicJson.timeframe ? (
+                <p className="text-xs text-muted-foreground">
+                  Claude escolheu timeframe <strong>{String(logicJson.timeframe)}</strong>{" "}
+                  com base na estratégia descrita.
+                </p>
+              ) : null}
               <pre className="bg-secondary rounded-lg p-4 text-xs font-mono overflow-x-auto">
                 {JSON.stringify(logicJson, null, 2)}
               </pre>
