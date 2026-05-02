@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { Activity, Bell, ChevronRight, Loader2, Plus } from "lucide-react"
+import { Activity, Bell, ChevronRight, Loader2, Plus, Server, Sparkles } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { AppHeader } from "@/components/app-header"
+import { EmptyState } from "@/components/empty-state"
+import { ErrorState } from "@/components/error-state"
 import { createClient } from "@/lib/supabase"
 
 type AccountRow = {
@@ -75,9 +77,12 @@ export default function DashboardPage() {
   const [alertsToday, setAlertsToday] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [retryToken, setRetryToken] = useState(0)
 
   useEffect(() => {
     let mounted = true
+    setLoading(true)
+    setError(null)
     async function load() {
       const [accRes, ruleRes] = await Promise.all([
         supabase
@@ -168,7 +173,7 @@ export default function DashboardPage() {
     return () => {
       mounted = false
     }
-  }, [supabase])
+  }, [supabase, retryToken])
 
   // Realtime: alertas + candles atualizam vitals sem precisar F5.
   useEffect(() => {
@@ -271,72 +276,117 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-background">
       <AppHeader />
 
-      <main className="p-6 max-w-5xl mx-auto space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Monitores</h2>
+      <main className="px-6 py-6 max-w-7xl mx-auto">
+        <header className="mb-8 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Regras</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Suas regras ativas e o status delas em tempo real.
+            </p>
+          </div>
           <Link href="/rules/new">
-            <Button size="sm">
+            <Button>
               <Plus className="h-4 w-4" />
-              Nova Regra
+              Nova regra
             </Button>
           </Link>
-        </div>
+        </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <SummaryCard
-            label="Regras ativas"
-            value={loading ? null : activeCount}
-            icon={<Activity className="h-4 w-4" />}
-          />
-          <SummaryCard
-            label="Total de regras"
-            value={loading ? null : rules.length}
-            icon={<Activity className="h-4 w-4" />}
-          />
-          <SummaryCard
-            label="Alertas hoje"
-            value={loading ? null : alertsToday}
-            icon={<Bell className="h-4 w-4" />}
-          />
-        </div>
-
-        {error && <p className="text-sm text-destructive">{error}</p>}
-
-        {loading ? (
-          <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin mx-auto" />
-            </CardContent>
-          </Card>
-        ) : rules.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">
-              <p className="text-sm">Você ainda não criou nenhuma regra.</p>
-              <p className="text-xs mt-1">
-                {accounts.length === 0
-                  ? "Cadastre uma conta MT5 antes de criar regras."
-                  : "Crie sua primeira regra de trading em linguagem natural."}
-              </p>
-              <Link href={accounts.length === 0 ? "/settings/accounts" : "/rules/new"}>
-                <Button size="sm" className="mt-4">
-                  <Plus className="h-4 w-4" />
-                  {accounts.length === 0 ? "Cadastrar conta" : "Nova Regra"}
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-4">
-            {Array.from(grouped.entries()).map(([accountId, accountRules]) => (
-              <AccountGroup
-                key={accountId}
-                account={accounts.find((a) => a.id === accountId) ?? null}
-                rules={accountRules}
-                vitals={vitals}
-              />
-            ))}
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <SummaryCard
+              label="Regras ativas"
+              value={loading ? null : activeCount}
+              icon={<Activity className="h-4 w-4" />}
+            />
+            <SummaryCard
+              label="Total de regras"
+              value={loading ? null : rules.length}
+              icon={<Activity className="h-4 w-4" />}
+            />
+            <SummaryCard
+              label="Alertas hoje"
+              value={loading ? null : alertsToday}
+              icon={<Bell className="h-4 w-4" />}
+            />
           </div>
-        )}
+
+          {error ? (
+            <Card>
+              <ErrorState
+                message={
+                  <>
+                    Não consegui carregar suas regras. {error}
+                    <br />
+                    Verifique sua conexão e tente novamente.
+                  </>
+                }
+                onRetry={() => setRetryToken((t) => t + 1)}
+                retrying={loading}
+              />
+            </Card>
+          ) : loading ? (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin mx-auto" />
+              </CardContent>
+            </Card>
+          ) : rules.length === 0 ? (
+            <Card>
+              {accounts.length === 0 ? (
+                <EmptyState
+                  icon={<Server className="h-5 w-5" />}
+                  title="Cadastre uma conta MT5 para começar"
+                  description={
+                    <>
+                      O Pulse acompanha candles do seu MetaTrader 5 e dispara
+                      alertas no Telegram quando suas regras detectam o setup.
+                      Comece adicionando a conta da sua corretora.
+                    </>
+                  }
+                  primaryAction={{
+                    label: "Cadastrar conta",
+                    href: "/settings/accounts",
+                    icon: <Plus className="h-4 w-4" />,
+                  }}
+                  secondaryAction={{
+                    label: "Ver checklist de onboarding",
+                    href: "/onboarding",
+                  }}
+                />
+              ) : (
+                <EmptyState
+                  icon={<Sparkles className="h-5 w-5" />}
+                  title="Crie sua primeira regra"
+                  description={
+                    <>
+                      Descreva em português o que o Pulse deve monitorar — por
+                      exemplo, &ldquo;avise quando o RSI 14 cair abaixo de 30 em
+                      WINFUT M5&rdquo;. O Claude transforma em lógica executável
+                      e o motor passa a checar a cada candle.
+                    </>
+                  }
+                  primaryAction={{
+                    label: "Nova regra",
+                    href: "/rules/new",
+                    icon: <Plus className="h-4 w-4" />,
+                  }}
+                />
+              )}
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {Array.from(grouped.entries()).map(([accountId, accountRules]) => (
+                <AccountGroup
+                  key={accountId}
+                  account={accounts.find((a) => a.id === accountId) ?? null}
+                  rules={accountRules}
+                  vitals={vitals}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </main>
     </div>
   )
@@ -362,23 +412,31 @@ function AccountGroup({
           {account ? (
             <>
               <span>{account.label}</span>
-              <Badge variant="outline" className="text-[10px] capitalize">
+              <Badge variant="outline" className="text-[11px] capitalize font-medium">
                 {account.broker}
               </Badge>
               {isOnline ? (
-                <Badge className="text-[10px] bg-emerald-500 text-white">Online</Badge>
+                <Badge className="text-[11px] font-medium bg-emerald-500 text-white">
+                  Online
+                </Badge>
               ) : (
-                <Badge variant="secondary" className="text-[10px]">Offline</Badge>
+                <Badge variant="secondary" className="text-[11px] font-medium">
+                  Offline
+                </Badge>
               )}
             </>
           ) : (
             <>
               <span>Sem conta vinculada</span>
-              <Badge variant="secondary" className="text-[10px]">legacy</Badge>
+              <Badge variant="secondary" className="text-[11px] font-medium">
+                legacy
+              </Badge>
             </>
           )}
         </CardTitle>
-        <span className="text-xs text-muted-foreground">{rules.length} monitor(es)</span>
+        <span className="text-xs text-muted-foreground">
+          {rules.length} {rules.length === 1 ? "regra" : "regras"}
+        </span>
       </CardHeader>
       <CardContent className="p-0">
         <div className="divide-y">
@@ -407,19 +465,19 @@ function AccountGroup({
                 </div>
                 <div className="hidden sm:block text-right text-xs shrink-0 min-w-[140px]">
                   <div className="text-muted-foreground">Último candle</div>
-                  <div className="tabular-nums">
+                  <div className="font-mono tabular-nums text-foreground">
                     {v?.lastCandle ? formatPrice(v.lastCandle.close) : "—"}
                   </div>
-                  <div className="text-muted-foreground">
+                  <div className="font-mono tabular-nums text-muted-foreground text-[11px]">
                     {v?.lastCandle ? formatTime(v.lastCandle.time) : ""}
                   </div>
                 </div>
                 <div className="hidden md:block text-right text-xs shrink-0 min-w-[140px]">
                   <div className="text-muted-foreground">Último alerta</div>
-                  <div className="tabular-nums">
+                  <div className="font-mono tabular-nums text-foreground">
                     {v?.lastAlert ? formatPrice(v.lastAlert.price) : "—"}
                   </div>
-                  <div className="text-muted-foreground">
+                  <div className="font-mono tabular-nums text-muted-foreground text-[11px]">
                     {v?.lastAlert ? formatTime(v.lastAlert.triggered_at) : "—"}
                   </div>
                 </div>
@@ -451,7 +509,7 @@ function SummaryCard({
         <span className="text-muted-foreground">{icon}</span>
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold tabular-nums">
+        <div className="text-3xl font-mono font-medium tabular-nums tracking-tight">
           {value === null ? <Loader2 className="h-5 w-5 animate-spin" /> : value}
         </div>
       </CardContent>
