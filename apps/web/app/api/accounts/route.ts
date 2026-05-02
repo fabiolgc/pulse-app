@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod/v4"
 import { createServerSupabaseClient, createServiceRoleClient } from "@/lib/supabase-server"
 import { generateAccountToken, hashAccountToken } from "@/lib/account-token"
-import { generateBootstrapScript, type AgentOS } from "@/lib/agent-bootstrap"
+import { buildAgentPackage } from "@/lib/agent-package"
 
 const createSchema = z.object({
   label: z.string().min(1).max(80),
@@ -10,23 +10,6 @@ const createSchema = z.object({
   account_type: z.enum(["real", "demo"]),
   mt5_path: z.string().max(500).optional().nullable(),
 })
-
-function buildScripts(input: { ingestUrl: string; token: string; mt5Path?: string | null }) {
-  const out: Record<AgentOS, { filename: string; content: string }> = {} as Record<
-    AgentOS,
-    { filename: string; content: string }
-  >
-  for (const os of ["windows", "mac", "linux"] as AgentOS[]) {
-    const s = generateBootstrapScript({
-      os,
-      ingestUrl: input.ingestUrl,
-      ingestToken: input.token,
-      mt5Path: input.mt5Path ?? null,
-    })
-    out[os] = { filename: s.filename, content: s.content }
-  }
-  return out
-}
 
 export async function POST(request: NextRequest) {
   const supabase = await createServerSupabaseClient()
@@ -74,11 +57,23 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const scripts = buildScripts({
-    ingestUrl: `${request.nextUrl.origin}/api/ingest`,
-    token,
-    mt5Path: parsed.data.mt5_path,
-  })
+  let pkg
+  try {
+    pkg = await buildAgentPackage({
+      label: account.label as string,
+      ingestUrl: `${request.nextUrl.origin}/api/ingest`,
+      ingestToken: token,
+      mt5Path: parsed.data.mt5_path,
+    })
+  } catch (err) {
+    return NextResponse.json(
+      {
+        error:
+          err instanceof Error ? err.message : "Erro ao montar pacote do agent",
+      },
+      { status: 500 }
+    )
+  }
 
-  return NextResponse.json({ account, token, scripts })
+  return NextResponse.json({ account, token, package: pkg })
 }

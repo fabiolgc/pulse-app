@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServerSupabaseClient, createServiceRoleClient } from "@/lib/supabase-server"
 import { generateAccountToken, hashAccountToken } from "@/lib/account-token"
-import { generateBootstrapScript, type AgentOS } from "@/lib/agent-bootstrap"
+import { buildAgentPackage } from "@/lib/agent-package"
 
 export async function POST(
   request: NextRequest,
@@ -18,7 +18,7 @@ export async function POST(
   const service = createServiceRoleClient()
   const { data: existing } = await service
     .from("accounts")
-    .select("id, user_id, mt5_path")
+    .select("id, user_id, label, mt5_path")
     .eq("id", id)
     .maybeSingle()
 
@@ -38,19 +38,23 @@ export async function POST(
     return NextResponse.json({ error: updateErr.message }, { status: 500 })
   }
 
-  const scripts: Record<AgentOS, { filename: string; content: string }> = {} as Record<
-    AgentOS,
-    { filename: string; content: string }
-  >
-  for (const os of ["windows", "mac", "linux"] as AgentOS[]) {
-    const s = generateBootstrapScript({
-      os,
+  let pkg
+  try {
+    pkg = await buildAgentPackage({
+      label: existing.label as string,
       ingestUrl: `${request.nextUrl.origin}/api/ingest`,
       ingestToken: token,
       mt5Path: (existing.mt5_path as string | null) ?? null,
     })
-    scripts[os] = { filename: s.filename, content: s.content }
+  } catch (err) {
+    return NextResponse.json(
+      {
+        error:
+          err instanceof Error ? err.message : "Erro ao montar pacote do agent",
+      },
+      { status: 500 }
+    )
   }
 
-  return NextResponse.json({ token, scripts })
+  return NextResponse.json({ token, package: pkg })
 }

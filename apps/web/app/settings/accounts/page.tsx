@@ -8,10 +8,13 @@ import {
   Copy,
   Download,
   Loader2,
+  Pencil,
   Plus,
   Power,
   RefreshCcw,
+  Save,
   Trash2,
+  X,
   XCircle,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -34,13 +37,13 @@ type AccountRow = {
   created_at: string
 }
 
-type Scripts = Record<"windows" | "mac" | "linux", { filename: string; content: string }>
+type AgentPackage = { filename: string; base64: string }
 
 type RevealedSecret = {
   accountId: string
   label: string
   token: string
-  scripts: Scripts
+  package: AgentPackage
 }
 
 const STALE_THRESHOLD_MS = 5 * 60 * 1000
@@ -66,6 +69,7 @@ export default function AccountsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [revealed, setRevealed] = useState<RevealedSecret | null>(null)
   const [tick, setTick] = useState(0)
 
@@ -114,7 +118,7 @@ export default function AccountsPage() {
       setError(data.error ?? "Erro ao regerar token")
       return
     }
-    setRevealed({ accountId: id, label, token: data.token, scripts: data.scripts })
+    setRevealed({ accountId: id, label, token: data.token, package: data.package })
   }
 
   async function deleteAccount(id: string, label: string) {
@@ -122,6 +126,25 @@ export default function AccountsPage() {
     const { error } = await supabase.from("accounts").delete().eq("id", id)
     if (error) setError(error.message)
     else setAccounts((prev) => prev.filter((a) => a.id !== id))
+  }
+
+  async function saveEdit(
+    id: string,
+    patch: { label: string; mt5_path: string | null }
+  ) {
+    setError(null)
+    const { error } = await supabase
+      .from("accounts")
+      .update({ label: patch.label, mt5_path: patch.mt5_path })
+      .eq("id", id)
+    if (error) {
+      setError(error.message)
+      return
+    }
+    setAccounts((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, ...patch } : a))
+    )
+    setEditingId(null)
   }
 
   async function toggleActive(id: string) {
@@ -207,15 +230,25 @@ export default function AccountsPage() {
           </Card>
         ) : (
           <div className="space-y-3">
-            {accounts.map((a) => (
-              <AccountCard
-                key={a.id}
-                account={a}
-                onToggleActive={() => toggleActive(a.id)}
-                onRegenerate={() => regenerateToken(a.id, a.label)}
-                onDelete={() => deleteAccount(a.id, a.label)}
-              />
-            ))}
+            {accounts.map((a) =>
+              editingId === a.id ? (
+                <EditAccountForm
+                  key={a.id}
+                  account={a}
+                  onCancel={() => setEditingId(null)}
+                  onSave={(patch) => saveEdit(a.id, patch)}
+                />
+              ) : (
+                <AccountCard
+                  key={a.id}
+                  account={a}
+                  onEdit={() => setEditingId(a.id)}
+                  onToggleActive={() => toggleActive(a.id)}
+                  onRegenerate={() => regenerateToken(a.id, a.label)}
+                  onDelete={() => deleteAccount(a.id, a.label)}
+                />
+              )
+            )}
           </div>
         )}
       </main>
@@ -229,11 +262,13 @@ export default function AccountsPage() {
 
 function AccountCard({
   account,
+  onEdit,
   onToggleActive,
   onRegenerate,
   onDelete,
 }: {
   account: AccountRow
+  onEdit: () => void
   onToggleActive: () => void | Promise<void>
   onRegenerate: () => void | Promise<void>
   onDelete: () => void | Promise<void>
@@ -285,7 +320,7 @@ function AccountCard({
               {account.mt5_path && ` · ${account.mt5_path}`}
             </p>
           </div>
-          <div className="flex shrink-0 gap-2">
+          <div className="flex shrink-0 gap-2 flex-wrap justify-end">
             <Button
               size="sm"
               variant={account.active ? "secondary" : "default"}
@@ -295,14 +330,79 @@ function AccountCard({
               <Power className="h-4 w-4" />
               {account.active ? "Desativar" : "Ativar"}
             </Button>
-            <Button size="sm" variant="outline" onClick={onRegenerate} title="Regerar token e baixar .bat">
+            <Button size="sm" variant="outline" onClick={onRegenerate} title="Gerar novo token e baixar pacote .zip">
               <RefreshCcw className="h-4 w-4" />
-              Token + .bat
+              Novo .zip
+            </Button>
+            <Button size="sm" variant="ghost" onClick={onEdit} title="Editar">
+              <Pencil className="h-4 w-4" />
             </Button>
             <Button size="sm" variant="ghost" onClick={onDelete} title="Excluir">
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function EditAccountForm({
+  account,
+  onCancel,
+  onSave,
+}: {
+  account: AccountRow
+  onCancel: () => void
+  onSave: (patch: { label: string; mt5_path: string | null }) => void | Promise<void>
+}) {
+  const [label, setLabel] = useState(account.label)
+  const [mt5Path, setMt5Path] = useState(account.mt5_path ?? "")
+  const [saving, setSaving] = useState(false)
+
+  async function submit() {
+    setSaving(true)
+    await onSave({
+      label: label.trim() || account.label,
+      mt5_path: mt5Path.trim() || null,
+    })
+    setSaving(false)
+  }
+
+  return (
+    <Card className="border-primary/40">
+      <CardHeader>
+        <CardTitle className="text-sm">Editando — {account.label}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div>
+          <label className="text-xs text-muted-foreground">Apelido</label>
+          <Input value={label} onChange={(e) => setLabel(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground">
+            Caminho do terminal64.exe
+          </label>
+          <Input
+            value={mt5Path}
+            onChange={(e) => setMt5Path(e.target.value)}
+            placeholder="C:\\Program Files\\..."
+          />
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Corretora ({account.broker}) e tipo ({account.account_type}) não podem
+          ser alterados — pra trocar, exclua e crie de novo. Token também não muda
+          aqui (use &quot;Novo .zip&quot;).
+        </p>
+        <div className="flex gap-2">
+          <Button onClick={submit} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Salvar
+          </Button>
+          <Button variant="outline" onClick={onCancel} disabled={saving}>
+            <X className="h-4 w-4" />
+            Cancelar
+          </Button>
         </div>
       </CardContent>
     </Card>
@@ -361,7 +461,7 @@ function AddAccountForm({
         accountId: data.account.id,
         label: data.account.label,
         token: data.token,
-        scripts: data.scripts,
+        package: data.package,
       },
       data.account
     )
@@ -434,15 +534,13 @@ function RevealedSecretModal({
   secret: RevealedSecret
   onClose: () => void
 }) {
-  const [activeOs, setActiveOs] = useState<keyof Scripts>("windows")
-
-  function downloadScript(os: keyof Scripts) {
-    const s = secret.scripts[os]
-    const blob = new Blob([s.content], { type: "text/plain;charset=utf-8" })
+  function downloadPackage() {
+    const bytes = Uint8Array.from(atob(secret.package.base64), (c) => c.charCodeAt(0))
+    const blob = new Blob([bytes], { type: "application/zip" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = s.filename
+    a.download = secret.package.filename
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -463,7 +561,8 @@ function RevealedSecretModal({
             <h3 className="text-base font-semibold">Token gerado — {secret.label}</h3>
             <p className="text-xs text-muted-foreground mt-1">
               Esse token só será exibido <strong>uma única vez</strong>. Baixe o
-              script do seu sistema agora — ele já vem com o token embutido.
+              pacote agora — ele já vem com o token embutido + agent Python +
+              sources prontos pra rodar.
             </p>
           </div>
 
@@ -473,41 +572,43 @@ function RevealedSecretModal({
           </div>
 
           <div>
-            <p className="text-xs text-muted-foreground mb-2">Script de inicialização</p>
-            <div className="flex items-center gap-1 mb-2 flex-wrap">
-              {(["windows", "mac", "linux"] as const).map((os) => (
-                <Button
-                  key={os}
-                  size="sm"
-                  variant={activeOs === os ? "default" : "outline"}
-                  onClick={() => setActiveOs(os)}
-                >
-                  {os === "windows" ? "Windows" : os === "mac" ? "macOS" : "Linux"}
-                </Button>
-              ))}
-              <Button size="sm" className="ml-auto" onClick={() => downloadScript(activeOs)}>
-                <Download className="h-4 w-4" />
-                Baixar {secret.scripts[activeOs].filename}
-              </Button>
-            </div>
-            <pre className="bg-secondary rounded-lg p-3 text-[11px] font-mono overflow-x-auto max-h-72 whitespace-pre">
-              {secret.scripts[activeOs].content}
-            </pre>
+            <Button onClick={downloadPackage} className="w-full">
+              <Download className="h-4 w-4" />
+              Baixar {secret.package.filename}
+            </Button>
           </div>
 
-          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs">
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs space-y-1">
             <p>
-              <strong>Como rodar:</strong> coloque o script numa pasta dedicada
-              (ex: <code>apps/agent/{secret.label.toLowerCase().replace(/\s+/g, "-")}/</code>),
-              copie {" "}
-              <code>agent.py</code>, <code>ingest_client.py</code>,{" "}
-              <code>requirements.txt</code> e <code>sources/</code> do repo, depois
-              execute o script. Lembre que só a conta <strong>Ativa</strong> dispara
-              regras — se você ativar Demo, a Real fica em standby (e vice-versa).
+              <strong>Como rodar:</strong>
+            </p>
+            <ol className="list-decimal list-inside space-y-0.5">
+              <li>
+                Extraia o <code>{secret.package.filename}</code> em qualquer pasta
+                (ex: <code>C:\Pulse\</code>).
+              </li>
+              <li>
+                <strong>Windows:</strong> duplo clique em{" "}
+                <code>pulse-agent-start.bat</code> dentro da pasta extraída.
+                <br />
+                <strong>macOS:</strong>{" "}
+                <code>chmod +x pulse-agent-start.command</code> e duplo clique.
+                <br />
+                <strong>Linux:</strong>{" "}
+                <code>chmod +x pulse-agent-start.sh &amp;&amp; ./pulse-agent-start.sh</code>
+              </li>
+              <li>
+                Faça login no MT5 dessa conta. O agent começa a empurrar candles
+                automaticamente.
+              </li>
+            </ol>
+            <p className="pt-1">
+              Só a conta <strong>Ativa</strong> dispara regras — ativar Demo
+              desativa Real e vice-versa.
             </p>
           </div>
 
-          <Button onClick={onClose} className="w-full">
+          <Button onClick={onClose} variant="outline" className="w-full">
             Já copiei tudo, fechar
           </Button>
         </div>
