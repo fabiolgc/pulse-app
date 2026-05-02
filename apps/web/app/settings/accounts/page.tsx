@@ -9,6 +9,7 @@ import {
   Download,
   Loader2,
   Plus,
+  Power,
   RefreshCcw,
   Trash2,
   XCircle,
@@ -20,12 +21,13 @@ import { Select } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { AppHeader } from "@/components/app-header"
 import { createClient } from "@/lib/supabase"
-import type { AccountBroker } from "@/types"
+import type { AccountBroker, AccountType } from "@/types"
 
 type AccountRow = {
   id: string
   label: string
   broker: AccountBroker
+  account_type: AccountType
   mt5_path: string | null
   last_seen: string | null
   active: boolean
@@ -73,7 +75,8 @@ export default function AccountsPage() {
       const { data, error } = await supabase
         .from("accounts")
         .select("*")
-        .order("created_at", { ascending: false })
+        .order("broker", { ascending: true })
+        .order("account_type", { ascending: true })
       if (!mounted) return
       if (error) setError(error.message)
       else setAccounts((data ?? []) as AccountRow[])
@@ -87,14 +90,14 @@ export default function AccountsPage() {
     }
   }, [supabase])
 
-  // Re-fetch leve a cada tick pra atualizar last_seen
   useEffect(() => {
     if (tick === 0) return
     let cancelled = false
     supabase
       .from("accounts")
       .select("*")
-      .order("created_at", { ascending: false })
+      .order("broker", { ascending: true })
+      .order("account_type", { ascending: true })
       .then(({ data }) => {
         if (!cancelled && data) setAccounts(data as AccountRow[])
       })
@@ -121,8 +124,29 @@ export default function AccountsPage() {
     else setAccounts((prev) => prev.filter((a) => a.id !== id))
   }
 
+  async function toggleActive(id: string) {
+    setError(null)
+    const target = accounts.find((a) => a.id === id)
+    if (!target) return
+    const { error } = await supabase
+      .from("accounts")
+      .update({ active: !target.active })
+      .eq("id", id)
+    if (error) {
+      setError(error.message)
+      return
+    }
+    // Trigger no DB pode ter desativado outras do mesmo broker; recarrega tudo.
+    const { data } = await supabase
+      .from("accounts")
+      .select("*")
+      .order("broker", { ascending: true })
+      .order("account_type", { ascending: true })
+    if (data) setAccounts(data as AccountRow[])
+  }
+
   async function handleCreated(payload: RevealedSecret, account: AccountRow) {
-    setAccounts((prev) => [account, ...prev])
+    setAccounts((prev) => [...prev, account])
     setRevealed(payload)
     setShowAdd(false)
   }
@@ -148,10 +172,17 @@ export default function AccountsPage() {
           )}
         </div>
 
+        <p className="text-xs text-muted-foreground">
+          Cada corretora pode ter Real e Demo cadastradas, mas <strong>só uma fica
+          ativa por vez</strong>. Ativar Demo automaticamente desativa Real (e
+          vice-versa). Apenas a conta ativa dispara regras.
+        </p>
+
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         {showAdd && (
           <AddAccountForm
+            existing={accounts}
             onCancel={() => setShowAdd(false)}
             onCreated={handleCreated}
             onError={setError}
@@ -169,7 +200,7 @@ export default function AccountsPage() {
             <CardContent className="py-12 text-center text-muted-foreground">
               <p className="text-sm">Nenhuma conta cadastrada ainda.</p>
               <p className="text-xs mt-1">
-                Cadastre uma conta MT5 (XP, Hantec, etc) para começar a empurrar
+                Cadastre uma conta MT5 (XP, Hantec, etc) pra começar a empurrar
                 candles e disparar regras.
               </p>
             </CardContent>
@@ -180,6 +211,7 @@ export default function AccountsPage() {
               <AccountCard
                 key={a.id}
                 account={a}
+                onToggleActive={() => toggleActive(a.id)}
                 onRegenerate={() => regenerateToken(a.id, a.label)}
                 onDelete={() => deleteAccount(a.id, a.label)}
               />
@@ -197,10 +229,12 @@ export default function AccountsPage() {
 
 function AccountCard({
   account,
+  onToggleActive,
   onRegenerate,
   onDelete,
 }: {
   account: AccountRow
+  onToggleActive: () => void | Promise<void>
   onRegenerate: () => void | Promise<void>
   onDelete: () => void | Promise<void>
 }) {
@@ -212,32 +246,58 @@ function AccountCard({
     BROKERS.find((b) => b.id === account.broker)?.label ?? account.broker
 
   return (
-    <Card>
+    <Card className={account.active ? "border-emerald-500/40" : undefined}>
       <CardContent className="py-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="font-medium">{account.label}</h3>
               <Badge variant="outline" className="text-xs">{brokerLabel}</Badge>
-              {isOnline ? (
-                <Badge className="text-xs bg-emerald-500 text-white inline-flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3" /> Online
-                </Badge>
+              <Badge
+                variant="outline"
+                className={`text-xs capitalize ${
+                  account.account_type === "real"
+                    ? "border-blue-500/60 text-blue-600 dark:text-blue-400"
+                    : "border-purple-500/60 text-purple-600 dark:text-purple-400"
+                }`}
+              >
+                {account.account_type}
+              </Badge>
+              {account.active ? (
+                <Badge className="text-xs bg-emerald-500 text-white">Ativa</Badge>
               ) : (
-                <Badge variant="secondary" className="text-xs inline-flex items-center gap-1">
-                  <XCircle className="h-3 w-3" /> Offline
-                </Badge>
+                <Badge variant="secondary" className="text-xs">Inativa</Badge>
+              )}
+              {account.active && (
+                isOnline ? (
+                  <Badge className="text-xs bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3" /> Online
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary" className="text-xs inline-flex items-center gap-1">
+                    <XCircle className="h-3 w-3" /> Offline
+                  </Badge>
+                )
               )}
             </div>
             <p className="text-xs text-muted-foreground">
               Último heartbeat {formatRelative(account.last_seen)}
-              {account.mt5_path && ` · MT5 path: ${account.mt5_path}`}
+              {account.mt5_path && ` · ${account.mt5_path}`}
             </p>
           </div>
           <div className="flex shrink-0 gap-2">
-            <Button size="sm" variant="outline" onClick={onRegenerate}>
+            <Button
+              size="sm"
+              variant={account.active ? "secondary" : "default"}
+              onClick={onToggleActive}
+              title={account.active ? "Desativar" : "Ativar (desativa a outra do mesmo broker)"}
+            >
+              <Power className="h-4 w-4" />
+              {account.active ? "Desativar" : "Ativar"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={onRegenerate} title="Regerar token e baixar .bat">
               <RefreshCcw className="h-4 w-4" />
-              Regerar token
+              Token + .bat
             </Button>
             <Button size="sm" variant="ghost" onClick={onDelete} title="Excluir">
               <Trash2 className="h-4 w-4" />
@@ -250,16 +310,19 @@ function AccountCard({
 }
 
 function AddAccountForm({
+  existing,
   onCancel,
   onCreated,
   onError,
 }: {
+  existing: AccountRow[]
   onCancel: () => void
   onCreated: (secret: RevealedSecret, account: AccountRow) => void
   onError: (msg: string) => void
 }) {
   const [label, setLabel] = useState("")
   const [broker, setBroker] = useState<AccountBroker>("xp")
+  const [accountType, setAccountType] = useState<AccountType>("real")
   const [mt5Path, setMt5Path] = useState(BROKERS[0].defaultPath ?? "")
   const [saving, setSaving] = useState(false)
 
@@ -269,8 +332,12 @@ function AddAccountForm({
     setMt5Path(def)
   }
 
+  const duplicate = existing.some(
+    (a) => a.broker === broker && a.account_type === accountType
+  )
+
   async function submit() {
-    if (!label.trim()) return
+    if (!label.trim() || duplicate) return
     setSaving(true)
     onError("")
     const res = await fetch("/api/accounts", {
@@ -279,6 +346,7 @@ function AddAccountForm({
       body: JSON.stringify({
         label: label.trim(),
         broker,
+        account_type: accountType,
         mt5_path: mt5Path.trim() || null,
       }),
     })
@@ -308,22 +376,36 @@ function AddAccountForm({
         <div>
           <label className="text-xs text-muted-foreground">Apelido</label>
           <Input
-            placeholder="Ex: XP - WIN, Hantec Demo"
+            placeholder="Ex: XP Real, Hantec Demo"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />
         </div>
-        <div>
-          <label className="text-xs text-muted-foreground">Corretora</label>
-          <Select value={broker} onChange={(e) => pickBroker(e.target.value as AccountBroker)}>
-            {BROKERS.map((b) => (
-              <option key={b.id} value={b.id}>{b.label}</option>
-            ))}
-          </Select>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-muted-foreground">Corretora</label>
+            <Select value={broker} onChange={(e) => pickBroker(e.target.value as AccountBroker)}>
+              {BROKERS.map((b) => (
+                <option key={b.id} value={b.id}>{b.label}</option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Tipo</label>
+            <Select value={accountType} onChange={(e) => setAccountType(e.target.value as AccountType)}>
+              <option value="real">Real</option>
+              <option value="demo">Demo</option>
+            </Select>
+          </div>
         </div>
+        {duplicate && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            Você já tem uma conta {accountType} dessa corretora cadastrada.
+          </p>
+        )}
         <div>
           <label className="text-xs text-muted-foreground">
-            Caminho do terminal64.exe (opcional, default por corretora)
+            Caminho do terminal64.exe (default por corretora)
           </label>
           <Input
             placeholder="C:\\Program Files\\..."
@@ -332,7 +414,7 @@ function AddAccountForm({
           />
         </div>
         <div className="flex gap-2">
-          <Button onClick={submit} disabled={!label.trim() || saving}>
+          <Button onClick={submit} disabled={!label.trim() || saving || duplicate}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             {saving ? "Criando..." : "Criar conta"}
           </Button>
@@ -380,19 +462,19 @@ function RevealedSecretModal({
           <div>
             <h3 className="text-base font-semibold">Token gerado — {secret.label}</h3>
             <p className="text-xs text-muted-foreground mt-1">
-              Esse token só será exibido <strong>uma única vez</strong>. Baixe o script
-              do seu sistema agora — ele já vem com o token embutido.
+              Esse token só será exibido <strong>uma única vez</strong>. Baixe o
+              script do seu sistema agora — ele já vem com o token embutido.
             </p>
           </div>
 
           <div>
-            <p className="text-xs text-muted-foreground mb-1">Token (sha256 hash gravado no servidor)</p>
+            <p className="text-xs text-muted-foreground mb-1">Token</p>
             <CopyableInline value={secret.token} />
           </div>
 
           <div>
             <p className="text-xs text-muted-foreground mb-2">Script de inicialização</p>
-            <div className="flex items-center gap-1 mb-2">
+            <div className="flex items-center gap-1 mb-2 flex-wrap">
               {(["windows", "mac", "linux"] as const).map((os) => (
                 <Button
                   key={os}
@@ -419,9 +501,9 @@ function RevealedSecretModal({
               (ex: <code>apps/agent/{secret.label.toLowerCase().replace(/\s+/g, "-")}/</code>),
               copie {" "}
               <code>agent.py</code>, <code>ingest_client.py</code>,{" "}
-              <code>requirements.txt</code> e <code>sources/</code> do repo,
-              depois execute o script. Cada conta precisa rodar em pasta
-              separada.
+              <code>requirements.txt</code> e <code>sources/</code> do repo, depois
+              execute o script. Lembre que só a conta <strong>Ativa</strong> dispara
+              regras — se você ativar Demo, a Real fica em standby (e vice-versa).
             </p>
           </div>
 

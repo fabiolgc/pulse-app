@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
-import { Activity, LogOut } from "lucide-react"
+import { Activity, LogOut, Rocket } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { SourceStatusBanner } from "@/components/source-status-banner"
 import { createClient } from "@/lib/supabase"
@@ -53,16 +53,30 @@ export function AppHeader() {
             )
           })}
           {email && (
-            <form action="/auth/signout" method="post">
-              <button
-                type="submit"
-                className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5"
-                title={`Sair (${email})`}
+            <>
+              <Link
+                href="/onboarding"
+                className={
+                  pathname === "/onboarding"
+                    ? "font-medium text-foreground inline-flex items-center gap-1.5"
+                    : "text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5"
+                }
+                title="Onboarding"
               >
-                <LogOut className="h-4 w-4" />
-                Sair
-              </button>
-            </form>
+                <Rocket className="h-4 w-4" />
+                Onboarding
+              </Link>
+              <form action="/auth/signout" method="post">
+                <button
+                  type="submit"
+                  className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5"
+                  title={`Sair (${email})`}
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sair
+                </button>
+              </form>
+            </>
           )}
         </nav>
       </div>

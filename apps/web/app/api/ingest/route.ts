@@ -9,6 +9,8 @@ type IngestTokenMap = Record<string, string>
 interface ResolvedAuth {
   sourceId: string
   accountId: string | null
+  /** true se a conta está ativa (ou se é caminho legacy sem conta). */
+  accountActive: boolean
 }
 
 function parseLegacyTokens(): IngestTokenMap {
@@ -37,18 +39,22 @@ async function authenticate(
   const tokenHash = await hashAccountToken(token)
   const { data: account } = await supabase
     .from("accounts")
-    .select("id")
+    .select("id, active")
     .eq("token_hash", tokenHash)
     .maybeSingle()
 
   if (account) {
-    return { sourceId: "mt5", accountId: account.id as string }
+    return {
+      sourceId: "mt5",
+      accountId: account.id as string,
+      accountActive: account.active === true,
+    }
   }
 
   const legacy = parseLegacyTokens()
   const entry = Object.entries(legacy).find(([, t]) => t === token)
   if (entry) {
-    return { sourceId: entry[0], accountId: null }
+    return { sourceId: entry[0], accountId: null, accountActive: true }
   }
 
   return null
@@ -163,7 +169,9 @@ export async function POST(request: NextRequest) {
   }
 
   let triggered = 0
-  if (!isHistorical) {
+  // Conta inativa: candles ainda são salvos (histórico), mas o motor de regras
+  // não roda — o usuário escolheu Real OU Demo, e a outra fica em standby.
+  if (!isHistorical && auth.accountActive) {
     for (const key of candleKeys) {
       const [symbol, source, tf, accountId] = key.split("|")
       try {
