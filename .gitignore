@@ -19,6 +19,11 @@ dist/
 .env.local
 .env.*.local
 apps/agent/.env
+# Pastas de instância do agent (cada conta gera a própria com .bat + token)
+apps/agent/*/
+!apps/agent/sources/
+# Screenshots ad-hoc na raiz
+/*.png
 
 # Python
 __pycache__/
