@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
 import { Activity, LogOut } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { SourceStatusBanner } from "@/components/source-status-banner"
 import { createClient } from "@/lib/supabase"
 
 const NAV_ITEMS = [
@@ -26,6 +27,7 @@ export function AppHeader() {
   }, [])
 
   return (
+    <>
     <header className="border-b border-border px-6 py-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -65,5 +67,7 @@ export function AppHeader() {
         </nav>
       </div>
     </header>
+    <SourceStatusBanner />
+    </>
   )
 }

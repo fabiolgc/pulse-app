@@ -1,4 +1,6 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import Link from "next/link"
+import { ChevronRight, Server } from "lucide-react"
+import { Card, CardContent } from "@/components/ui/card"
 import { AppHeader } from "@/components/app-header"
 
 export default function SettingsPage() {
@@ -7,41 +9,22 @@ export default function SettingsPage() {
       <AppHeader />
 
       <main className="p-6 max-w-2xl space-y-6">
-        <h2 className="text-lg font-semibold">Configuracoes</h2>
+        <h2 className="text-lg font-semibold">Configurações</h2>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Telegram</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Configure seu Telegram Chat ID para receber alertas no celular.
-              Implementacao completa requer autenticacao.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Fontes de Dados</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Gerencie as fontes de dados conectadas (MT5, Cedro, Nelogica).
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Sons de Alerta</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Configuracoes de som para alertas no browser.
-            </p>
-          </CardContent>
-        </Card>
+        <Link href="/settings/agent" className="block">
+          <Card className="hover:bg-muted/40 transition-colors">
+            <CardContent className="py-4 flex items-center gap-3">
+              <Server className="h-4 w-4 text-muted-foreground" />
+              <div className="flex-1">
+                <p className="text-sm font-medium">Agent local (MetaTrader 5)</p>
+                <p className="text-xs text-muted-foreground">
+                  Status do agent, SO e download do script de inicialização.
+                </p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            </CardContent>
+          </Card>
+        </Link>
       </main>
     </div>
   )

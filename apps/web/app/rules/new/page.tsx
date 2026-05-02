@@ -56,21 +56,25 @@ export default function NewRulePage() {
       setIsSaving(false)
       return
     }
-    const { error: insertErr } = await supabase.from("rules").insert({
-      user_id: user.id,
-      name: name.trim(),
-      description: description.trim(),
-      logic_json: logicJson,
-      symbol,
-      tf: timeframe,
-      active: false,
-    })
+    const { data: inserted, error: insertErr } = await supabase
+      .from("rules")
+      .insert({
+        user_id: user.id,
+        name: name.trim(),
+        description: description.trim(),
+        logic_json: logicJson,
+        symbol,
+        tf: timeframe,
+        active: false,
+      })
+      .select("id")
+      .single()
     setIsSaving(false)
-    if (insertErr) {
-      setError(insertErr.message)
+    if (insertErr || !inserted) {
+      setError(insertErr?.message ?? "Erro ao salvar")
       return
     }
-    router.push("/rules")
+    router.push(`/rules/${inserted.id}`)
   }
 
   return (
@@ -82,7 +86,7 @@ export default function NewRulePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Descreva sua regra em portugues</CardTitle>
+            <CardTitle className="text-sm">Descreva sua regra em português</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <Input
@@ -100,11 +104,25 @@ export default function NewRulePage() {
 
             <div className="flex gap-4">
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Simbolo</label>
-                <Select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
-                  <option value="WINFUT">WINFUT</option>
-                  <option value="WDOFUT">WDOFUT</option>
-                </Select>
+                <label className="text-xs text-muted-foreground">Símbolo</label>
+                <Input
+                  list="symbols-suggestions"
+                  value={symbol}
+                  onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+                  placeholder="WINFUT, XAUUSD, EURUSD…"
+                />
+                <datalist id="symbols-suggestions">
+                  <option value="WINFUT" />
+                  <option value="WDOFUT" />
+                  <option value="XAUUSD" />
+                  <option value="EURUSD" />
+                  <option value="GBPUSD" />
+                  <option value="BTCUSD" />
+                </datalist>
+                <p className="text-[11px] text-muted-foreground">
+                  Use o nome exato como aparece no Market Watch do MT5 (com sufixo
+                  se houver).
+                </p>
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Timeframe</label>
@@ -118,24 +136,19 @@ export default function NewRulePage() {
               </div>
             </div>
 
-            <Button
-              onClick={handleInterpret}
-              disabled={isInterpreting || !description.trim()}
-            >
+            <Button onClick={handleInterpret} disabled={isInterpreting || !description.trim()}>
               <Sparkles className="h-4 w-4" />
               {isInterpreting ? "Interpretando..." : "Interpretar com Claude"}
             </Button>
 
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
+            {error && <p className="text-sm text-destructive">{error}</p>}
           </CardContent>
         </Card>
 
         {logicJson && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">JSON Gerado</CardTitle>
+              <CardTitle className="text-sm">Lógica gerada</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <pre className="bg-secondary rounded-lg p-4 text-xs font-mono overflow-x-auto">

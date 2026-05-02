@@ -18,6 +18,11 @@ INDICADORES DISPONÍVEIS:
 - volume (operator: "above_avg" | "below_avg", multiplier)
 - candle_pattern (pattern: "hammer" | "engulfing_bull" | "engulfing_bear" | "doji" | "marubozu_bull" | "marubozu_bear")
 
+CONTEXTO B3:
+- WINFUT (mini-índice): 1 ponto = R$0,20.
+- WDOFUT (mini-dólar): 1 ponto = R$10,00.
+Use valores realistas de stop/gain para esses contratos.
+
 RESPONDA APENAS COM JSON VÁLIDO, sem explicações, sem markdown.
 
 O JSON deve seguir este schema:
@@ -70,8 +75,7 @@ export async function interpretRule({ description, symbol, timeframe }: Interpre
     messages: [{ role: "user", content: userMessage }],
   })
 
-  const text =
-    response.content[0].type === "text" ? response.content[0].text : ""
+  const text = response.content[0].type === "text" ? response.content[0].text : ""
   return JSON.parse(stripJsonFence(text))
 }
 
@@ -111,7 +115,6 @@ DADOS ATUAIS:
     messages: [{ role: "user", content: userMessage }],
   })
 
-  const text =
-    response.content[0].type === "text" ? response.content[0].text : ""
+  const text = response.content[0].type === "text" ? response.content[0].text : ""
   return JSON.parse(stripJsonFence(text))
 }

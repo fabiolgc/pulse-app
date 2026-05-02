@@ -124,9 +124,8 @@ export const backtestResults = pgTable(
 
 export const userSettings = pgTable("user_settings", {
   userId: uuid("user_id").primaryKey(),
-  telegramChatId: text("telegram_chat_id"),
-  telegramEnabled: boolean("telegram_enabled").default(false),
   alertSound: boolean("alert_sound").default(true),
+  os: text("os"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 })

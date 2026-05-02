@@ -30,7 +30,6 @@ export async function POST(request: NextRequest) {
       symbol: parsed.data.symbol,
       timeframe: parsed.data.timeframe,
     })
-
     return NextResponse.json({ ok: true, logic: ruleLogic })
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to interpret rule"

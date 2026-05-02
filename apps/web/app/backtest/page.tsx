@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { AppHeader } from "@/components/app-header"
 import { RuleChart, type ChartMarker } from "@/components/rule-chart"
+import { BacktestPlayer } from "@/components/backtest-player"
 import { createClient } from "@/lib/supabase"
 import type { BacktestMetrics, BacktestTrade, SourceId } from "@/types"
 
@@ -115,6 +116,7 @@ function BacktestPageInner() {
   const [metrics, setMetrics] = useState<BacktestMetrics | null>(null)
   const [chartCandles, setChartCandles] = useState<CandlestickData[] | null>(null)
   const [focusRange, setFocusRange] = useState<[number, number] | null>(null)
+  const [chartTab, setChartTab] = useState<"static" | "replay">("static")
 
   useEffect(() => {
     let mounted = true
@@ -337,22 +339,47 @@ function BacktestPageInner() {
 
             {metrics.trades.length > 0 && (
               <Card id="backtest-chart">
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-sm">
                     Gráfico {selectedRule?.symbol} — {selectedRule?.tf}
                   </CardTitle>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant={chartTab === "static" ? "default" : "outline"}
+                      onClick={() => setChartTab("static")}
+                    >
+                      Estático
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={chartTab === "replay" ? "default" : "outline"}
+                      onClick={() => setChartTab("replay")}
+                    >
+                      Replay visual
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <RuleChart
-                    candles={chartCandles}
-                    markers={markers}
-                    focusRange={focusRange}
-                  />
-                  <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                    <LegendDot color="#3b82f6" label="Entrada" />
-                    <LegendDot color="#10b981" label="Saída ganho" />
-                    <LegendDot color="#ef4444" label="Saída perda" />
-                  </div>
+                  {chartTab === "static" ? (
+                    <>
+                      <RuleChart
+                        candles={chartCandles}
+                        markers={markers}
+                        focusRange={focusRange}
+                      />
+                      <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                        <LegendDot color="#3b82f6" label="Entrada" />
+                        <LegendDot color="#10b981" label="Saída ganho" />
+                        <LegendDot color="#ef4444" label="Saída perda" />
+                      </div>
+                    </>
+                  ) : (
+                    <BacktestPlayer
+                      candles={chartCandles}
+                      trades={metrics.trades}
+                    />
+                  )}
                 </CardContent>
               </Card>
             )}

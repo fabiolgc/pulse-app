@@ -114,9 +114,7 @@ export default function RuleDetailPage() {
       if (!mounted) return
 
       if (candleRes.data?.length) {
-        const sorted = [...candleRes.data].sort(
-          (a, b) => Number(a.time) - Number(b.time)
-        )
+        const sorted = [...candleRes.data].sort((a, b) => Number(a.time) - Number(b.time))
         const cs: CandlestickData[] = sorted
           .map((c) => ({
             time: Math.floor(Number(c.time) / 1000) as Time,
@@ -145,7 +143,6 @@ export default function RuleDetailPage() {
     }
   }, [supabase, params?.id])
 
-  // Realtime: prepend new alerts for this rule
   useEffect(() => {
     if (!rule) return
     const channel = supabase
@@ -202,9 +199,7 @@ export default function RuleDetailPage() {
           </Card>
         ) : error ? (
           <Card>
-            <CardContent className="py-12 text-center text-destructive text-sm">
-              {error}
-            </CardContent>
+            <CardContent className="py-12 text-center text-destructive text-sm">{error}</CardContent>
           </Card>
         ) : rule ? (
           <>
@@ -222,9 +217,7 @@ export default function RuleDetailPage() {
                         <Badge variant="secondary">Pausada</Badge>
                       )}
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                      {rule.description}
-                    </p>
+                    <p className="text-sm text-muted-foreground">{rule.description}</p>
                   </div>
                   <div className="flex shrink-0 gap-2">
                     <Button
@@ -241,10 +234,7 @@ export default function RuleDetailPage() {
                         "Ativar"
                       )}
                     </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => router.push(`/backtest?ruleId=${rule.id}`)}
-                    >
+                    <Button size="sm" onClick={() => router.push(`/backtest?ruleId=${rule.id}`)}>
                       <Play className="h-4 w-4" />
                       Rodar backtest
                     </Button>
@@ -301,15 +291,11 @@ export default function RuleDetailPage() {
                                 {a.direction ?? "—"}
                               </Badge>
                             </td>
-                            <td className="py-2 pr-3 text-muted-foreground">
-                              {a.source}
-                            </td>
+                            <td className="py-2 pr-3 text-muted-foreground">{a.source}</td>
                             <td className="py-2 pr-3 text-right tabular-nums">
                               {formatPrice(a.price)}
                             </td>
-                            <td className="py-2 pr-3 text-muted-foreground">
-                              {a.message}
-                            </td>
+                            <td className="py-2 pr-3 text-muted-foreground">{a.message}</td>
                           </tr>
                         ))}
                       </tbody>

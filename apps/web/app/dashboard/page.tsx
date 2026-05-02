@@ -87,7 +87,6 @@ export default function DashboardPage() {
       const list = (ruleRows ?? []) as RuleRow[]
       setRules(list)
 
-      // For each rule, fetch latest candle and latest alert in parallel
       const results = await Promise.all(
         list.map(async (r) => {
           const source = r.source_pref ?? "mt5"
