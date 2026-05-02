@@ -32,6 +32,8 @@ type AccountRow = {
   broker: AccountBroker
   account_type: AccountType
   mt5_path: string | null
+  symbols: string[] | null
+  timeframes: string[] | null
   last_seen: string | null
   active: boolean
   created_at: string
@@ -48,11 +50,42 @@ type RevealedSecret = {
 
 const STALE_THRESHOLD_MS = 5 * 60 * 1000
 
-const BROKERS: { id: AccountBroker; label: string; defaultPath: string | null }[] = [
-  { id: "xp", label: "XP Investimentos", defaultPath: "C:\\Program Files\\XP MT5\\terminal64.exe" },
-  { id: "hantec", label: "Hantec Markets", defaultPath: "C:\\Program Files\\Hantec MT5\\terminal64.exe" },
-  { id: "other", label: "Outro", defaultPath: "" },
+type BrokerMeta = {
+  id: AccountBroker
+  label: string
+  defaultPath: string | null
+  defaultSymbols: string[]
+}
+
+const BROKERS: BrokerMeta[] = [
+  {
+    id: "xp",
+    label: "XP Investimentos",
+    defaultPath: "C:\\Program Files\\XP MT5\\terminal64.exe",
+    defaultSymbols: ["WIN@N", "WDO@N"],
+  },
+  {
+    id: "hantec",
+    label: "Hantec Markets",
+    defaultPath: "C:\\Program Files\\Hantec MT5\\terminal64.exe",
+    defaultSymbols: ["XAUUSD", "EURUSD"],
+  },
+  {
+    id: "other",
+    label: "Outro",
+    defaultPath: "",
+    defaultSymbols: [],
+  },
 ]
+
+const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1"] as const
+
+function parseSymbolsCsv(raw: string): string[] {
+  return raw
+    .split(/[,\n]+/)
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean)
+}
 
 function formatRelative(iso: string | null): string {
   if (!iso) return "nunca"
@@ -130,12 +163,17 @@ export default function AccountsPage() {
 
   async function saveEdit(
     id: string,
-    patch: { label: string; mt5_path: string | null }
+    patch: {
+      label: string
+      mt5_path: string | null
+      symbols: string[]
+      timeframes: string[]
+    }
   ) {
     setError(null)
     const { error } = await supabase
       .from("accounts")
-      .update({ label: patch.label, mt5_path: patch.mt5_path })
+      .update(patch)
       .eq("id", id)
     if (error) {
       setError(error.message)
@@ -319,6 +357,26 @@ function AccountCard({
               Último heartbeat {formatRelative(account.last_seen)}
               {account.mt5_path && ` · ${account.mt5_path}`}
             </p>
+            {account.symbols && account.symbols.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                <span className="text-[11px] text-muted-foreground">Símbolos:</span>
+                {account.symbols.map((s) => (
+                  <Badge key={s} variant="outline" className="text-[10px] font-mono">
+                    {s}
+                  </Badge>
+                ))}
+                {account.timeframes && account.timeframes.length > 0 && (
+                  <>
+                    <span className="text-[11px] text-muted-foreground ml-1">·</span>
+                    {account.timeframes.map((tf) => (
+                      <Badge key={tf} variant="outline" className="text-[10px]">
+                        {tf}
+                      </Badge>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex shrink-0 gap-2 flex-wrap justify-end">
             <Button
@@ -354,17 +412,38 @@ function EditAccountForm({
 }: {
   account: AccountRow
   onCancel: () => void
-  onSave: (patch: { label: string; mt5_path: string | null }) => void | Promise<void>
+  onSave: (patch: {
+    label: string
+    mt5_path: string | null
+    symbols: string[]
+    timeframes: string[]
+  }) => void | Promise<void>
 }) {
   const [label, setLabel] = useState(account.label)
   const [mt5Path, setMt5Path] = useState(account.mt5_path ?? "")
+  const [symbolsCsv, setSymbolsCsv] = useState(
+    (account.symbols ?? []).join(",")
+  )
+  const [timeframes, setTimeframes] = useState<string[]>(
+    account.timeframes && account.timeframes.length > 0
+      ? account.timeframes
+      : ["M5", "M15"]
+  )
   const [saving, setSaving] = useState(false)
+
+  function toggleTf(tf: string) {
+    setTimeframes((prev) =>
+      prev.includes(tf) ? prev.filter((t) => t !== tf) : [...prev, tf]
+    )
+  }
 
   async function submit() {
     setSaving(true)
     await onSave({
       label: label.trim() || account.label,
       mt5_path: mt5Path.trim() || null,
+      symbols: parseSymbolsCsv(symbolsCsv),
+      timeframes,
     })
     setSaving(false)
   }
@@ -389,13 +468,39 @@ function EditAccountForm({
             placeholder="C:\\Program Files\\..."
           />
         </div>
+        <div>
+          <label className="text-xs text-muted-foreground">
+            Símbolos a monitorar (separados por vírgula)
+          </label>
+          <Input value={symbolsCsv} onChange={(e) => setSymbolsCsv(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground">Timeframes</label>
+          <div className="flex flex-wrap gap-1 mt-1">
+            {TIMEFRAMES.map((tf) => (
+              <Button
+                key={tf}
+                size="sm"
+                variant={timeframes.includes(tf) ? "default" : "outline"}
+                onClick={() => toggleTf(tf)}
+                type="button"
+              >
+                {tf}
+              </Button>
+            ))}
+          </div>
+        </div>
+        <p className="text-[11px] text-amber-600 dark:text-amber-400">
+          Mudou símbolos ou timeframes? Baixe um <strong>Novo .zip</strong> depois
+          — o agent atual vai continuar empurrando os antigos até você reiniciar
+          ele com os novos.
+        </p>
         <p className="text-[11px] text-muted-foreground">
           Corretora ({account.broker}) e tipo ({account.account_type}) não podem
-          ser alterados — pra trocar, exclua e crie de novo. Token também não muda
-          aqui (use &quot;Novo .zip&quot;).
+          ser alterados — pra trocar, exclua e crie de novo.
         </p>
         <div className="flex gap-2">
-          <Button onClick={submit} disabled={saving}>
+          <Button onClick={submit} disabled={saving || parseSymbolsCsv(symbolsCsv).length === 0}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             Salvar
           </Button>
@@ -424,12 +529,21 @@ function AddAccountForm({
   const [broker, setBroker] = useState<AccountBroker>("xp")
   const [accountType, setAccountType] = useState<AccountType>("real")
   const [mt5Path, setMt5Path] = useState(BROKERS[0].defaultPath ?? "")
+  const [symbolsCsv, setSymbolsCsv] = useState(BROKERS[0].defaultSymbols.join(","))
+  const [timeframes, setTimeframes] = useState<string[]>(["M5", "M15"])
   const [saving, setSaving] = useState(false)
 
   function pickBroker(next: AccountBroker) {
     setBroker(next)
-    const def = BROKERS.find((b) => b.id === next)?.defaultPath ?? ""
-    setMt5Path(def)
+    const meta = BROKERS.find((b) => b.id === next)
+    setMt5Path(meta?.defaultPath ?? "")
+    setSymbolsCsv((meta?.defaultSymbols ?? []).join(","))
+  }
+
+  function toggleTf(tf: string) {
+    setTimeframes((prev) =>
+      prev.includes(tf) ? prev.filter((t) => t !== tf) : [...prev, tf]
+    )
   }
 
   const duplicate = existing.some(
@@ -448,6 +562,8 @@ function AddAccountForm({
         broker,
         account_type: accountType,
         mt5_path: mt5Path.trim() || null,
+        symbols: parseSymbolsCsv(symbolsCsv),
+        timeframes,
       }),
     })
     const data = await res.json()
@@ -513,8 +629,48 @@ function AddAccountForm({
             onChange={(e) => setMt5Path(e.target.value)}
           />
         </div>
+        <div>
+          <label className="text-xs text-muted-foreground">
+            Símbolos a monitorar (separados por vírgula)
+          </label>
+          <Input
+            placeholder="WIN@N,WDO@N"
+            value={symbolsCsv}
+            onChange={(e) => setSymbolsCsv(e.target.value)}
+          />
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Use o nome <strong>exato</strong> que aparece no Market Watch do MT5
+            (com sufixo se houver). O agent só recebe candles dos símbolos
+            listados aqui.
+          </p>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground">Timeframes</label>
+          <div className="flex flex-wrap gap-1 mt-1">
+            {TIMEFRAMES.map((tf) => (
+              <Button
+                key={tf}
+                size="sm"
+                variant={timeframes.includes(tf) ? "default" : "outline"}
+                onClick={() => toggleTf(tf)}
+                type="button"
+              >
+                {tf}
+              </Button>
+            ))}
+          </div>
+        </div>
         <div className="flex gap-2">
-          <Button onClick={submit} disabled={!label.trim() || saving || duplicate}>
+          <Button
+            onClick={submit}
+            disabled={
+              !label.trim() ||
+              saving ||
+              duplicate ||
+              parseSymbolsCsv(symbolsCsv).length === 0 ||
+              timeframes.length === 0
+            }
+          >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             {saving ? "Criando..." : "Criar conta"}
           </Button>

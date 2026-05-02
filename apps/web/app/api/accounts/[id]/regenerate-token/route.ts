@@ -18,7 +18,7 @@ export async function POST(
   const service = createServiceRoleClient()
   const { data: existing } = await service
     .from("accounts")
-    .select("id, user_id, label, mt5_path")
+    .select("id, user_id, label, mt5_path, symbols, timeframes")
     .eq("id", id)
     .maybeSingle()
 
@@ -45,6 +45,8 @@ export async function POST(
       ingestUrl: `${request.nextUrl.origin}/api/ingest`,
       ingestToken: token,
       mt5Path: (existing.mt5_path as string | null) ?? null,
+      symbols: (existing.symbols as string[] | null) ?? [],
+      timeframes: (existing.timeframes as string[] | null) ?? ["M5", "M15"],
     })
   } catch (err) {
     return NextResponse.json(

@@ -40,6 +40,8 @@ export interface BuildPackageInput {
   ingestUrl: string
   ingestToken: string
   mt5Path?: string | null
+  symbols?: string[]
+  timeframes?: string[]
 }
 
 export interface AgentPackage {
@@ -56,12 +58,21 @@ export async function buildAgentPackage(
   if (!root) throw new Error("Failed to create zip root folder")
 
   // Scripts pros 3 SOs (usuário escolhe qual rodar)
+  const symbolsCsv =
+    input.symbols && input.symbols.length > 0 ? input.symbols.join(",") : undefined
+  const timeframesCsv =
+    input.timeframes && input.timeframes.length > 0
+      ? input.timeframes.join(",")
+      : undefined
+
   for (const os of ["windows", "mac", "linux"] as AgentOS[]) {
     const s = generateBootstrapScript({
       os,
       ingestUrl: input.ingestUrl,
       ingestToken: input.ingestToken,
       mt5Path: input.mt5Path ?? null,
+      symbols: symbolsCsv,
+      timeframes: timeframesCsv,
     })
     root.file(s.filename, s.content)
   }

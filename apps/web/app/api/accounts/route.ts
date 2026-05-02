@@ -9,6 +9,8 @@ const createSchema = z.object({
   broker: z.enum(["xp", "hantec", "other"]),
   account_type: z.enum(["real", "demo"]),
   mt5_path: z.string().max(500).optional().nullable(),
+  symbols: z.array(z.string().min(1).max(40)).max(20).optional(),
+  timeframes: z.array(z.enum(["M1", "M5", "M15", "M30", "H1"])).optional(),
 })
 
 export async function POST(request: NextRequest) {
@@ -45,9 +47,11 @@ export async function POST(request: NextRequest) {
       broker: parsed.data.broker,
       account_type: parsed.data.account_type,
       mt5_path: parsed.data.mt5_path?.trim() || null,
+      symbols: parsed.data.symbols ?? [],
+      timeframes: parsed.data.timeframes ?? ["M5", "M15"],
       token_hash: tokenHash,
     })
-    .select("id, label, broker, account_type, mt5_path, last_seen, active, created_at, user_id")
+    .select("id, label, broker, account_type, mt5_path, symbols, timeframes, last_seen, active, created_at, user_id")
     .single()
 
   if (insertErr || !account) {
@@ -64,6 +68,8 @@ export async function POST(request: NextRequest) {
       ingestUrl: `${request.nextUrl.origin}/api/ingest`,
       ingestToken: token,
       mt5Path: parsed.data.mt5_path,
+      symbols: (account.symbols as string[]) ?? [],
+      timeframes: (account.timeframes as string[]) ?? ["M5", "M15"],
     })
   } catch (err) {
     return NextResponse.json(
