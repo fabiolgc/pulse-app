@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { BarChart3, Loader2, Play } from "lucide-react"
+import { BarChart3, Loader2, Play, Plus, Sparkles } from "lucide-react"
 import type { CandlestickData, Time } from "lightweight-charts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -12,7 +12,10 @@ import { Badge } from "@/components/ui/badge"
 import { AppHeader } from "@/components/app-header"
 import { RuleChart, type ChartMarker } from "@/components/rule-chart"
 import { BacktestPlayer } from "@/components/backtest-player"
+import { EmptyState } from "@/components/empty-state"
+import { InfoTooltip } from "@/components/info-tooltip"
 import { createClient } from "@/lib/supabase"
+import { useToast } from "@/lib/toast"
 import type { BacktestMetrics, BacktestTrade, SourceId } from "@/types"
 
 type RuleOption = {
@@ -103,6 +106,7 @@ export default function BacktestPage() {
 
 function BacktestPageInner() {
   const supabase = useMemo(() => createClient(), [])
+  const toast = useToast()
   const searchParams = useSearchParams()
   const presetRuleId = searchParams.get("ruleId")
   const [rules, setRules] = useState<RuleOption[]>([])
@@ -173,7 +177,13 @@ function BacktestPageInner() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Erro ao rodar backtest")
-      setMetrics(data.metrics as BacktestMetrics)
+      const m = data.metrics as BacktestMetrics
+      setMetrics(m)
+      toast.success(
+        m.totalTrades === 0
+          ? "Backtest concluído · nenhum trade no período"
+          : `Backtest concluído · ${m.totalTrades} ${m.totalTrades === 1 ? "trade" : "trades"}`
+      )
 
       if (selectedRule) {
         const startMs = new Date(startDate).getTime()
@@ -207,7 +217,9 @@ function BacktestPageInner() {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro desconhecido")
+      const msg = err instanceof Error ? err.message : "Erro desconhecido"
+      setError(msg)
+      toast.error(`Não consegui rodar o backtest: ${msg}`)
     } finally {
       setRunning(false)
     }
@@ -230,10 +242,15 @@ function BacktestPageInner() {
     <div className="min-h-screen bg-background">
       <AppHeader />
 
-      <main className="p-6 max-w-5xl mx-auto space-y-6">
-        <h2 className="text-lg font-semibold">Backtest</h2>
+      <main className="px-6 py-6 max-w-7xl mx-auto">
+        <header className="mb-8">
+          <h2 className="text-2xl font-semibold tracking-tight">Backtest</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Avalie uma regra contra histórico antes de ativar.
+          </p>
+        </header>
 
-        <Card>
+        <Card className="max-w-3xl">
           <CardHeader>
             <CardTitle className="text-sm">Configurar execução</CardTitle>
           </CardHeader>
@@ -243,22 +260,36 @@ function BacktestPageInner() {
                 <Loader2 className="h-5 w-5 animate-spin mx-auto" />
               </div>
             ) : rules.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Nenhuma regra criada. Crie uma regra antes de rodar backtest.
-              </p>
+              <EmptyState
+                className="py-8"
+                icon={<Sparkles className="h-5 w-5" />}
+                title="Crie uma regra antes de rodar backtest"
+                description={
+                  <>
+                    O backtest avalia uma regra contra histórico. Crie a sua
+                    primeira regra em linguagem natural — leva menos de 1
+                    minuto.
+                  </>
+                }
+                primaryAction={{
+                  label: "Nova regra",
+                  href: "/rules/new",
+                  icon: <Plus className="h-4 w-4" />,
+                }}
+              />
             ) : (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground">Regra</label>
-                    <Select value={ruleId} onChange={(e) => setRuleId(e.target.value)}>
-                      {rules.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.name} ({r.symbol} · {r.tf})
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Regra</label>
+                  <Select value={ruleId} onChange={(e) => setRuleId(e.target.value)}>
+                    {rules.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name} ({r.symbol} · {r.tf})
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3">
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground">Fonte de dados</label>
                     <Select
@@ -318,27 +349,54 @@ function BacktestPageInner() {
 
         {metrics && (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <MetricCard label="Trades" value={String(metrics.totalTrades)} />
-              <MetricCard label="Win Rate" value={formatPercent(metrics.winRate)} />
-              <MetricCard
-                label="Profit Factor"
-                value={formatProfitFactor(metrics.profitFactor)}
-              />
-              <MetricCard
-                label="Max Drawdown"
-                value={formatPoints(metrics.maxDrawdown)}
-                tone="negative"
-              />
-              <MetricCard
-                label="Resultado (pts)"
-                value={formatPoints(metrics.netResult)}
-                tone={metrics.netResult >= 0 ? "positive" : "negative"}
-              />
-            </div>
+            <section className="mt-12 pb-8 border-b border-border">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-x-12 gap-y-8 md:items-end">
+                <div className="md:col-span-2">
+                  <p className="text-[11px] uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5">
+                    Resultado líquido
+                    <InfoTooltip
+                      ariaLabel="O que é resultado líquido"
+                      hint="Soma de todos os ganhos e perdas em pontos no período. Não inclui custos de corretagem, emolumentos ou slippage."
+                    />
+                  </p>
+                  <p
+                    className={`font-mono font-medium tabular-nums tracking-tight mt-2 text-5xl md:text-6xl leading-none ${
+                      metrics.netResult > 0
+                        ? "text-emerald-500"
+                        : metrics.netResult < 0
+                        ? "text-destructive"
+                        : "text-foreground"
+                    }`}
+                  >
+                    {metrics.netResult > 0 ? "+" : ""}
+                    {formatPoints(metrics.netResult)}
+                    <span className="text-2xl text-muted-foreground ml-2 font-normal">pts</span>
+                  </p>
+                </div>
+                <WinRateBar winRate={metrics.winRate} total={metrics.totalTrades} />
+              </div>
+              <div className="flex flex-wrap gap-x-12 gap-y-4 mt-10">
+                <SubStat
+                  label="Trades"
+                  value={String(metrics.totalTrades)}
+                  hint="Número total de operações simuladas no período."
+                />
+                <SubStat
+                  label="Profit Factor"
+                  value={formatProfitFactor(metrics.profitFactor)}
+                  hint="Soma dos ganhos dividida pela soma das perdas. Acima de 1.0 indica lucro líquido. 1.5+ é considerado bom; 2.0+ é excelente."
+                />
+                <SubStat
+                  label="Max Drawdown"
+                  value={formatPoints(metrics.maxDrawdown)}
+                  tone="negative"
+                  hint="Maior queda contínua do saldo durante o backtest, em pontos. Quanto menor, mais consistente a regra — picos altos exigem capital extra para suportar a sequência de perdas."
+                />
+              </div>
+            </section>
 
             {metrics.trades.length > 0 && (
-              <Card id="backtest-chart">
+              <Card id="backtest-chart" className="mt-8">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-sm">
                     Gráfico {selectedRule?.symbol} — {selectedRule?.tf}
@@ -384,34 +442,48 @@ function BacktestPageInner() {
               </Card>
             )}
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Trades</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {metrics.trades.length === 0 ? (
-                  <div className="py-12 text-center text-muted-foreground">
-                    <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p className="text-sm">
-                      Nenhum trade gerado no período. Tente um intervalo maior ou
-                      verifique se há candles importados para essa fonte.
-                    </p>
+            <section className="mt-10">
+              <div className="flex items-baseline justify-between mb-4">
+                <h3 className="text-sm font-medium tracking-tight">
+                  Trades{" "}
+                  <span className="text-muted-foreground font-normal font-mono tabular-nums">
+                    ({metrics.trades.length})
+                  </span>
+                </h3>
+                {metrics.trades.length > 0 && (
+                  <p className="text-[11px] text-muted-foreground hidden sm:block">
+                    Clique em uma linha para focar o trade no gráfico
+                  </p>
+                )}
+              </div>
+              {metrics.trades.length === 0 ? (
+                <div className="py-10 px-6 text-center border border-dashed border-border rounded-lg">
+                  <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15">
+                    <BarChart3 className="h-5 w-5" />
                   </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead className="text-left text-muted-foreground">
-                        <tr className="border-b">
-                          <th className="py-2 pr-3">Entrada</th>
-                          <th className="py-2 pr-3">Saída</th>
-                          <th className="py-2 pr-3">Direção</th>
-                          <th className="py-2 pr-3 text-right">Preço entrada</th>
-                          <th className="py-2 pr-3 text-right">Preço saída</th>
-                          <th className="py-2 pr-3 text-right">Resultado (pts)</th>
-                          <th className="py-2 text-right">%</th>
-                        </tr>
-                      </thead>
-                      <tbody>
+                  <p className="text-sm font-medium">Nenhum trade no período</p>
+                  <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
+                    A regra não disparou nenhum sinal entre as datas escolhidas.
+                    Tente um intervalo maior, troque a fonte de dados, ou
+                    confirme se há candles importados para esse símbolo e
+                    timeframe.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0">
+                  <table className="w-full min-w-[720px] text-xs">
+                    <thead className="text-left text-muted-foreground sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+                      <tr className="border-b border-border">
+                        <th className="py-2 pr-3 font-normal text-[11px] uppercase tracking-wider">Entrada</th>
+                        <th className="py-2 pr-3 font-normal text-[11px] uppercase tracking-wider">Saída</th>
+                        <th className="py-2 pr-3 font-normal text-[11px] uppercase tracking-wider">Direção</th>
+                        <th className="py-2 pr-3 text-right font-normal text-[11px] uppercase tracking-wider">Preço entrada</th>
+                        <th className="py-2 pr-3 text-right font-normal text-[11px] uppercase tracking-wider">Preço saída</th>
+                        <th className="py-2 pr-3 text-right font-normal text-[11px] uppercase tracking-wider">Resultado (pts)</th>
+                        <th className="py-2 text-right font-normal text-[11px] uppercase tracking-wider">%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
                         {metrics.trades.map((t, i) => (
                           <tr
                             key={i}
@@ -419,10 +491,10 @@ function BacktestPageInner() {
                             className="border-b last:border-0 cursor-pointer hover:bg-muted/40"
                             title="Clique para focar este trade no gráfico"
                           >
-                            <td className="py-2 pr-3 whitespace-nowrap">
+                            <td className="py-2 pr-3 whitespace-nowrap font-mono tabular-nums text-[11px]">
                               {formatDateTime(t.entryTime)}
                             </td>
-                            <td className="py-2 pr-3 whitespace-nowrap">
+                            <td className="py-2 pr-3 whitespace-nowrap font-mono tabular-nums text-[11px]">
                               {formatDateTime(t.exitTime)}
                             </td>
                             <td className="py-2 pr-3">
@@ -430,21 +502,21 @@ function BacktestPageInner() {
                                 {t.direction}
                               </Badge>
                             </td>
-                            <td className="py-2 pr-3 text-right tabular-nums">
+                            <td className="py-2 pr-3 text-right font-mono tabular-nums">
                               {formatPoints(t.entryPrice)}
                             </td>
-                            <td className="py-2 pr-3 text-right tabular-nums">
+                            <td className="py-2 pr-3 text-right font-mono tabular-nums">
                               {formatPoints(t.exitPrice)}
                             </td>
                             <td
-                              className={`py-2 pr-3 text-right tabular-nums ${
+                              className={`py-2 pr-3 text-right font-mono tabular-nums font-medium ${
                                 t.result >= 0 ? "text-emerald-500" : "text-destructive"
                               }`}
                             >
                               {formatPoints(t.result)}
                             </td>
                             <td
-                              className={`py-2 text-right tabular-nums ${
+                              className={`py-2 text-right font-mono tabular-nums ${
                                 t.resultPercent >= 0 ? "text-emerald-500" : "text-destructive"
                               }`}
                             >
@@ -456,8 +528,7 @@ function BacktestPageInner() {
                     </table>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </section>
           </>
         )}
       </main>
@@ -477,14 +548,16 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   )
 }
 
-function MetricCard({
+function SubStat({
   label,
   value,
   tone,
+  hint,
 }: {
   label: string
   value: string
   tone?: "positive" | "negative"
+  hint?: string
 }) {
   const color =
     tone === "positive"
@@ -493,11 +566,57 @@ function MetricCard({
       ? "text-destructive"
       : "text-foreground"
   return (
-    <Card>
-      <CardContent className="py-4">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className={`text-xl font-semibold tabular-nums mt-1 ${color}`}>{value}</p>
-      </CardContent>
-    </Card>
+    <div>
+      <p className="text-[11px] uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5">
+        {label}
+        {hint && <InfoTooltip ariaLabel={`O que é ${label}`} hint={hint} />}
+      </p>
+      <p className={`text-lg font-mono font-medium tabular-nums tracking-tight mt-1 ${color}`}>
+        {value}
+      </p>
+    </div>
+  )
+}
+
+function WinRateBar({
+  winRate,
+  total,
+}: {
+  winRate: number
+  total: number
+}) {
+  const pct = Math.max(0, Math.min(100, winRate))
+  const wins = Math.round((pct / 100) * total)
+  const losses = total - wins
+  return (
+    <div className="space-y-2 min-w-0">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[11px] uppercase tracking-wider text-muted-foreground inline-flex items-center gap-1.5">
+          Win rate
+          <InfoTooltip
+            ariaLabel="O que é win rate"
+            hint="Percentual de operações que terminaram em ganho. Win rate alto não garante lucro — uma regra com 70% de acertos e perdas grandes pode ser pior que 40% com perdas pequenas. Avalie junto com Profit Factor."
+          />
+        </span>
+        <span className="font-mono text-2xl font-medium tabular-nums tracking-tight">
+          {pct.toFixed(1)}
+          <span className="text-base text-muted-foreground font-normal">%</span>
+        </span>
+      </div>
+      <div
+        className="flex h-1.5 rounded-full overflow-hidden bg-destructive/30"
+        role="img"
+        aria-label={`${wins} ganhos de ${total} trades`}
+      >
+        <div
+          className="bg-emerald-500 transition-[width] duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="flex justify-between text-[11px] font-mono tabular-nums text-muted-foreground">
+        <span>{wins} ganhos</span>
+        <span>{losses} perdas</span>
+      </div>
+    </div>
   )
 }

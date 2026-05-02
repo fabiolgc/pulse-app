@@ -291,7 +291,7 @@ export function BacktestPlayer({ candles, trades, height = 420 }: BacktestPlayer
         }}
         className="w-full accent-primary"
       />
-      <div className="text-[11px] text-muted-foreground tabular-nums flex justify-between">
+      <div className="text-[11px] text-muted-foreground font-mono tabular-nums flex justify-between">
         <span>
           {currentTimeSec
             ? new Date(currentTimeSec * 1000).toLocaleString("pt-BR", {
