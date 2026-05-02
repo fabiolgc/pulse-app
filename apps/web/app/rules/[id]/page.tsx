@@ -3,15 +3,20 @@
 import { useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, BarChart3, Loader2, Play } from "lucide-react"
+import { ArrowLeft, BarChart3, Loader2, Pencil, Play, Save, Sparkles, X } from "lucide-react"
 import type { CandlestickData, Time } from "lightweight-charts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Select } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { AppHeader } from "@/components/app-header"
 import { RuleChart, type ChartMarker } from "@/components/rule-chart"
 import { createClient } from "@/lib/supabase"
 import type { RuleLogic } from "@/types"
+
+const AUTO_TF = "auto"
 
 type RuleRow = {
   id: string
@@ -77,11 +82,13 @@ export default function RuleDetailPage() {
   const supabase = useMemo(() => createClient(), [])
   const [rule, setRule] = useState<RuleRow | null>(null)
   const [account, setAccount] = useState<AccountSummary | null>(null)
+  const [accountTimeframes, setAccountTimeframes] = useState<string[]>([])
   const [alerts, setAlerts] = useState<AlertRow[]>([])
   const [candles, setCandles] = useState<CandlestickData[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   useEffect(() => {
     if (!params?.id) return
@@ -112,7 +119,7 @@ export default function RuleDetailPage() {
 
       const accountQ = supabase
         .from("accounts")
-        .select("id, label, broker")
+        .select("id, label, broker, timeframes")
         .eq("id", r.account_id)
         .maybeSingle()
 
@@ -150,7 +157,11 @@ export default function RuleDetailPage() {
       }
 
       setAlerts((alertRes.data ?? []) as AlertRow[])
-      if (accountRes.data) setAccount(accountRes.data as AccountSummary)
+      if (accountRes.data) {
+        const acc = accountRes.data as AccountSummary & { timeframes: string[] }
+        setAccount(acc)
+        setAccountTimeframes(acc.timeframes ?? [])
+      }
       setLoading(false)
     }
     load()
@@ -191,6 +202,29 @@ export default function RuleDetailPage() {
     if (err) setError(err.message)
     else setRule({ ...rule, active: !rule.active })
     setBusy(false)
+  }
+
+  async function saveEdit(patch: {
+    name: string
+    description: string
+    symbol: string
+    tf: string
+    logic_json: RuleLogic
+  }) {
+    if (!rule) return
+    setBusy(true)
+    setError(null)
+    const { error: err } = await supabase
+      .from("rules")
+      .update(patch)
+      .eq("id", rule.id)
+    setBusy(false)
+    if (err) {
+      setError(err.message)
+      return
+    }
+    setRule({ ...rule, ...patch })
+    setEditing(false)
   }
 
   const markers = useMemo(() => alerts.map(alertToMarker), [alerts])
@@ -240,7 +274,7 @@ export default function RuleDetailPage() {
                     </div>
                     <p className="text-sm text-muted-foreground">{rule.description}</p>
                   </div>
-                  <div className="flex shrink-0 gap-2">
+                  <div className="flex shrink-0 gap-2 flex-wrap justify-end">
                     <Button
                       size="sm"
                       variant={rule.active ? "secondary" : "default"}
@@ -255,6 +289,10 @@ export default function RuleDetailPage() {
                         "Ativar"
                       )}
                     </Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+                      <Pencil className="h-4 w-4" />
+                      Editar
+                    </Button>
                     <Button size="sm" onClick={() => router.push(`/backtest?ruleId=${rule.id}`)}>
                       <Play className="h-4 w-4" />
                       Rodar backtest
@@ -263,6 +301,15 @@ export default function RuleDetailPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {editing && (
+              <EditRuleForm
+                rule={rule}
+                accountTimeframes={accountTimeframes}
+                onCancel={() => setEditing(false)}
+                onSave={saveEdit}
+              />
+            )}
 
             <Card>
               <CardHeader>
@@ -352,5 +399,156 @@ function LegendDot({ color, label }: { color: string; label: string }) {
       />
       <span>{label}</span>
     </div>
+  )
+}
+
+function EditRuleForm({
+  rule,
+  accountTimeframes,
+  onCancel,
+  onSave,
+}: {
+  rule: RuleRow
+  accountTimeframes: string[]
+  onCancel: () => void
+  onSave: (patch: {
+    name: string
+    description: string
+    symbol: string
+    tf: string
+    logic_json: RuleLogic
+  }) => void | Promise<void>
+}) {
+  const [name, setName] = useState(rule.name)
+  const [description, setDescription] = useState(rule.description)
+  const [symbol, setSymbol] = useState(rule.symbol)
+  const [timeframe, setTimeframe] = useState<string>(rule.tf)
+  const [logic, setLogic] = useState<RuleLogic>(rule.logic_json)
+  const [reinterpreting, setReinterpreting] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [reinterpreted, setReinterpreted] = useState(false)
+
+  async function reinterpret() {
+    if (!description.trim()) return
+    setReinterpreting(true)
+    setErr(null)
+    try {
+      const isAuto = timeframe === AUTO_TF
+      const body: Record<string, unknown> = { description, symbol }
+      if (!isAuto) body.timeframe = timeframe
+      if (isAuto && accountTimeframes.length > 0) body.availableTimeframes = accountTimeframes
+      const res = await fetch("/api/analyze-rule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Erro ao reinterpretar")
+      setLogic(data.logic)
+      setReinterpreted(true)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erro desconhecido")
+    } finally {
+      setReinterpreting(false)
+    }
+  }
+
+  async function submit() {
+    setSaving(true)
+    const finalTf =
+      timeframe === AUTO_TF
+        ? (logic.timeframe as string) || rule.tf
+        : timeframe
+    await onSave({
+      name: name.trim() || rule.name,
+      description: description.trim() || rule.description,
+      symbol: symbol.trim().toUpperCase() || rule.symbol,
+      tf: finalTf,
+      logic_json: logic,
+    })
+    setSaving(false)
+  }
+
+  return (
+    <Card className="border-primary/40">
+      <CardHeader>
+        <CardTitle className="text-sm">Editar regra</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div>
+          <label className="text-xs text-muted-foreground">Nome</label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground">Descrição (PT-BR)</label>
+          <Textarea
+            rows={4}
+            value={description}
+            onChange={(e) => {
+              setDescription(e.target.value)
+              setReinterpreted(false)
+            }}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-muted-foreground">Símbolo</label>
+            <Input
+              value={symbol}
+              onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Timeframe</label>
+            <Select
+              value={timeframe}
+              onChange={(e) => setTimeframe(e.target.value)}
+            >
+              <option value={AUTO_TF}>Auto (Claude decide)</option>
+              <option value="M1">M1</option>
+              <option value="M5">M5</option>
+              <option value="M15">M15</option>
+              <option value="M30">M30</option>
+              <option value="H1">H1</option>
+            </Select>
+          </div>
+        </div>
+        <div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={reinterpret}
+            disabled={reinterpreting || !description.trim()}
+          >
+            {reinterpreting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            {reinterpreting ? "Reinterpretando..." : "Reinterpretar com Claude"}
+          </Button>
+          {reinterpreted && (
+            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">
+              Lógica regenerada — clique em Salvar pra persistir.
+            </p>
+          )}
+        </div>
+        {err && <p className="text-sm text-destructive">{err}</p>}
+        <pre className="bg-secondary rounded-lg p-3 text-[11px] font-mono overflow-x-auto max-h-48">
+          {JSON.stringify(logic, null, 2)}
+        </pre>
+        <div className="flex gap-2">
+          <Button onClick={submit} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Salvar
+          </Button>
+          <Button variant="outline" onClick={onCancel} disabled={saving}>
+            <X className="h-4 w-4" />
+            Cancelar
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
