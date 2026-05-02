@@ -170,9 +170,20 @@ export default function DashboardPage() {
     }
   }, [supabase])
 
-  // Realtime: alertas atualizam vitals
+  // Realtime: alertas + candles atualizam vitals sem precisar F5.
   useEffect(() => {
     if (rules.length === 0) return
+
+    // (account_id|symbol|tf) → ruleIds que monitoram esse combo.
+    // Várias regras podem compartilhar o mesmo combo, então é lista.
+    const candleKeyToRules = new Map<string, string[]>()
+    for (const r of rules) {
+      const key = `${r.account_id}|${r.symbol}|${r.tf}`
+      const cur = candleKeyToRules.get(key) ?? []
+      cur.push(r.id)
+      candleKeyToRules.set(key, cur)
+    }
+
     const channel = supabase
       .channel("dashboard-rules")
       .on(
@@ -200,6 +211,41 @@ export default function DashboardPage() {
             }
           })
           setAlertsToday((c) => c + 1)
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "candles_history" },
+        (payload) => {
+          const row = payload.new as {
+            account_id: string | null
+            symbol: string
+            tf: string
+            time: number | string
+            close: number | string
+          }
+          if (!row.account_id) return
+          const ruleIds = candleKeyToRules.get(
+            `${row.account_id}|${row.symbol}|${row.tf}`
+          )
+          if (!ruleIds?.length) return
+          const snapshot: CandleSnapshot = {
+            time: Number(row.time),
+            close: Number(row.close),
+          }
+          setVitals((prev) => {
+            const next = { ...prev }
+            for (const id of ruleIds) {
+              const cur = next[id]
+              // Evita reverter pra um candle antigo se chegar fora de ordem.
+              if (cur?.lastCandle && cur.lastCandle.time > snapshot.time) continue
+              next[id] = {
+                ...(cur ?? { lastAlert: null }),
+                lastCandle: snapshot,
+              }
+            }
+            return next
+          })
         }
       )
       .subscribe()

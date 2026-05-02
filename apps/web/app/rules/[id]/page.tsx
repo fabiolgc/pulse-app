@@ -186,6 +186,46 @@ export default function RuleDetailPage() {
           setAlerts((prev) => [payload.new as AlertRow, ...prev].slice(0, 100))
         }
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "candles_history",
+          filter: `account_id=eq.${rule.account_id}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            symbol: string
+            tf: string
+            time: number | string
+            open: number | string
+            high: number | string
+            low: number | string
+            close: number | string
+          }
+          if (row.symbol !== rule.symbol || row.tf !== rule.tf) return
+          const next: CandlestickData = {
+            time: Math.floor(Number(row.time) / 1000) as Time,
+            open: Number(row.open),
+            high: Number(row.high),
+            low: Number(row.low),
+            close: Number(row.close),
+          }
+          setCandles((prev) => {
+            if (!prev) return [next]
+            const last = prev[prev.length - 1]
+            if (last && last.time === next.time) {
+              const copy = prev.slice()
+              copy[copy.length - 1] = next
+              return copy
+            }
+            // Ignora candles fora de ordem (anteriores ao último).
+            if (last && (last.time as number) > (next.time as number)) return prev
+            return [...prev, next]
+          })
+        }
+      )
       .subscribe()
     return () => {
       supabase.removeChannel(channel)
