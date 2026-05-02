@@ -8,8 +8,13 @@ export default function SettingsPage() {
     <div className="min-h-screen bg-background">
       <AppHeader />
 
-      <main className="p-6 max-w-2xl space-y-6">
-        <h2 className="text-lg font-semibold">Configurações</h2>
+      <main className="px-6 py-6 max-w-3xl mx-auto">
+        <header className="mb-8">
+          <h2 className="text-2xl font-semibold tracking-tight">Configurações</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Contas MT5 e preferências da sua conta.
+          </p>
+        </header>
 
         <Link href="/settings/accounts" className="block">
           <Card className="hover:bg-muted/40 transition-colors">

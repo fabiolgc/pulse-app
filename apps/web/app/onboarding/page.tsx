@@ -113,13 +113,13 @@ export default function OnboardingPage() {
   return (
     <div className="min-h-screen bg-background">
       <AppHeader />
-      <main className="p-6 max-w-3xl mx-auto space-y-6">
-        <div>
-          <h2 className="text-lg font-semibold">Onboarding</h2>
+      <main className="px-6 py-6 max-w-3xl mx-auto space-y-6">
+        <header className="mb-2">
+          <h2 className="text-2xl font-semibold tracking-tight">Onboarding</h2>
           <p className="text-sm text-muted-foreground mt-1">
             Checklist pra colocar o Pulse pra funcionar de ponta a ponta.
           </p>
-        </div>
+        </header>
 
         {!status ? (
           <Card>

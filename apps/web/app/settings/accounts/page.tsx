@@ -223,21 +223,21 @@ export default function AccountsPage() {
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Link>
 
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Contas MT5</h2>
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Contas MT5</h2>
+            <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+              Cada corretora pode ter Real e Demo cadastradas, mas só uma fica
+              ativa por vez. Apenas a conta ativa dispara regras.
+            </p>
+          </div>
           {!showAdd && (
-            <Button size="sm" onClick={() => setShowAdd(true)}>
+            <Button onClick={() => setShowAdd(true)}>
               <Plus className="h-4 w-4" />
               Adicionar conta
             </Button>
           )}
-        </div>
-
-        <p className="text-xs text-muted-foreground">
-          Cada corretora pode ter Real e Demo cadastradas, mas <strong>só uma fica
-          ativa por vez</strong>. Ativar Demo automaticamente desativa Real (e
-          vice-versa). Apenas a conta ativa dispara regras.
-        </p>
+        </header>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
